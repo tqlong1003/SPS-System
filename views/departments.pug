@@ -1,0 +1,77 @@
+doctype html
+html
+  head
+    title Quản lý phòng ban
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+
+    // Sidebar
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        
+        p.menu-label NHÂN SỰ
+        a.menu-item(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+        a.menu-item.active(href="/departments")
+          i.fas.fa-sitemap
+          span Phòng ban
+        a.menu-item(href="/positions")
+          i.fas.fa-briefcase
+          span Chức vụ
+
+        p.menu-label TÀI CHÍNH
+        a.menu-item(href="/salary")
+          i.fas.fa-file-invoice-dollar
+          span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
+      
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+    // Main
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span Xin chào, 
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .content-wrapper
+        h1 Danh sách phòng ban
+
+        if user.role === 'admin'
+          a.btn-add(href="/departments/add")
+            i.fas.fa-plus
+            |  Thêm phòng ban
+
+        .table-container
+          table
+            thead
+              tr
+                th Tên phòng ban
+                th Trưởng phòng
+                if user.role === 'admin'
+                  th Hành động
+            tbody
+              each dept in departments
+                tr
+                  td= dept.name
+                  td= dept.manager
+                  if user.role === 'admin'
+                    td
+                      a.btn-edit(href=`/departments/edit/${dept._id}`) Sửa
+                      a.btn-delete(href=`/departments/delete/${dept._id}`) Xóa

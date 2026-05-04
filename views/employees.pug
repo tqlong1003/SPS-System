@@ -1,0 +1,93 @@
+doctype html
+html
+  head
+    title Quản lý nhân viên
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+
+  body.dashboard-body
+    // SIDEBAR (giống dashboard)
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        
+        p.menu-label NHÂN SỰ
+        a.menu-item.active(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+        a.menu-item(href="/departments")
+          i.fas.fa-sitemap
+          span Phòng ban
+        a.menu-item(href="/positions")
+          i.fas.fa-briefcase
+          span Chức vụ
+
+        p.menu-label TÀI CHÍNH
+        a.menu-item(href="/salary")
+          i.fas.fa-file-invoice-dollar
+          span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
+      
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+    // MAIN CONTENT
+    main.main-content
+      // TOPBAR
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm nhân viên...")
+        .user-info
+          span.welcome Xin chào,
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      // CONTENT
+      .content-wrapper
+        .welcome-banner
+          h1 👨‍💼 Quản lý nhân viên
+          p Danh sách và thông tin nhân sự trong hệ thống
+
+        // ACTION
+        if user.role === 'admin'
+          a.btn(href="/employees/add") ➕ Thêm nhân viên
+
+        br
+
+        // TABLE
+        .table-container
+          table
+            thead
+              tr
+                th Tên nhân viên
+                th Chức vụ
+                th Phòng ban
+                if user.role === 'admin'
+                  th Hành động
+            tbody
+              if employees.length > 0
+                each emp in employees
+                  tr
+                    td(style="font-weight: bold;")= emp.name
+                    td= emp.role
+                    td= emp.department
+                    if user.role === 'admin'
+                      td
+                        a.btn-edit(href=`/employees/edit/${emp._id}`) Sửa
+                        a.btn-delete(
+                          href=`/employees/delete/${emp._id}`, 
+                          onclick="return confirm('Xóa?')"
+                        ) Xóa
+              else
+                tr
+                  td(colspan=user.role === 'admin' ? "4" : "3", style="text-align: center;")
+                    | Chưa có dữ liệu

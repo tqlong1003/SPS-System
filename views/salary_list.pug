@@ -1,0 +1,104 @@
+doctype html
+html
+  head
+    title HRM System - Bảng lương
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    // Sidebar đồng bộ với Dashboard
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        
+        p.menu-label NHÂN SỰ
+        a.menu-item(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+        a.menu-item(href="/departments")
+          i.fas.fa-sitemap
+          span Phòng ban
+        a.menu-item(href="/positions")
+          i.fas.fa-briefcase
+          span Chức vụ
+
+        p.menu-label TÀI CHÍNH
+        a.menu-item.active(href="/salary")
+          i.fas.fa-file-invoice-dollar
+          span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
+      
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm phiếu lương...")
+        .user-info
+          span.welcome Xin chào, 
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .content-wrapper
+        .welcome-banner
+          h1 💰 Bảng lương tháng #{currentMonth}
+          p Theo dõi và quản lý thu nhập của nhân viên hệ thống
+
+        //- PHẦN DÀNH CHO ADMIN
+        if user.role === 'admin'
+          .stats-grid(style="margin-bottom: 20px;")
+            .stat-card
+              h3 Quản lý tính lương
+              form(method="GET" action="/salary" style="display: flex; gap: 10px; margin-top: 10px;")
+                input(type="month" name="month" value=currentMonth)
+                button.btn-edit(type="submit" style="margin: 0; padding: 5px 15px;") Lọc
+
+          .table-container
+            table
+              thead
+                tr
+                  th Nhân viên
+                  th Hành động
+              tbody
+                each emp in employees
+                  tr
+                    td= emp.name
+                    td
+                      a.btn-edit(href=`/salary/manage/${emp._id}`) 
+                        i.fas.fa-calculator
+                        |  Tính lương
+
+        //- PHẦN DÀNH CHO TẤT CẢ (XEM LƯƠNG CỦA MÌNH)
+        h2(style="margin: 20px 0;") Chi tiết lương của bạn
+        .table-container
+          table
+            thead
+              tr
+                th Tháng
+                th Nhân viên
+                th Lương cơ bản
+                th Thưởng/Phụ cấp
+                th Tạm ứng
+                th Thực nhận
+            tbody
+              if salaries.length > 0
+                each s in salaries
+                  tr
+                    td= s.month
+                    td(style="font-weight: bold;")= s.employeeName
+                    td= s.baseSalary.toLocaleString() + 'đ'
+                    td= (s.bonus + s.allowance + s.raise).toLocaleString() + 'đ'
+                    td(style="color: #e74c3c;")= '-' + s.advance.toLocaleString() + 'đ'
+                    td(style="font-weight: bold; color: #2ecc71;")= s.finalSalary.toLocaleString() + 'đ'
+              else
+                tr
+                  td(colspan="6", style="text-align: center; padding: 30px;") Chưa có dữ liệu lương cho tháng này.

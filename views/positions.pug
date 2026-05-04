@@ -1,0 +1,80 @@
+doctype html
+html
+  head
+    title Quản lý chức vụ
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+
+    // Sidebar
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        
+        p.menu-label NHÂN SỰ
+        a.menu-item(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+        a.menu-item(href="/departments")
+          i.fas.fa-sitemap
+          span Phòng ban
+        a.menu-item.active(href="/positions")
+          i.fas.fa-briefcase
+          span Chức vụ
+
+        p.menu-label TÀI CHÍNH
+        a.menu-item(href="/salary")
+          i.fas.fa-file-invoice-dollar
+          span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
+      
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+    // Main
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span Xin chào, 
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .content-wrapper
+        h1 Danh sách chức vụ
+
+        if user.role === 'admin'
+          a.btn-add(href="/positions/add")
+            i.fas.fa-plus
+            |  Thêm chức vụ
+
+        .table-container
+          table
+            thead
+              tr
+                th Mã
+                th Tên chức vụ
+                if user.role === 'admin'
+                  th Thao tác
+            tbody
+              each pos in positions
+                tr
+                  td= pos.posCode
+                  td= pos.posName
+                  if user.role === 'admin'
+                    td
+                      a.btn-edit(href=`/positions/edit/${pos._id}`) Sửa
+                      a.btn-delete(
+                        href=`/positions/delete/${pos._id}`, 
+                        onclick="return confirm('Xóa chức vụ này?')"
+                      ) Xóa

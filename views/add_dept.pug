@@ -1,0 +1,55 @@
+doctype html
+html
+  head
+    title Thêm phòng ban - HRM System
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        p.menu-label NHÂN SỰ
+        a.menu-item(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+        a.menu-item.active(href="/departments")
+          i.fas.fa-sitemap
+          span Phòng ban
+        a.menu-item(href="/positions")
+          i.fas.fa-briefcase
+          span Chức vụ
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+    main.main-content
+      .center-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-plus-circle
+            h2 Thêm phòng ban mới
+          
+          form(method="POST", action="/departments/add")
+            .form-group
+              label Tên phòng ban
+              input(type="text", name="name", placeholder="Ví dụ: Phòng Kỹ thuật", required)
+            .form-group
+              label Mô tả
+              input(type="text", name="description", placeholder="Nhập mô tả ngắn gọn")
+            .form-group
+              label Trưởng phòng
+              input(type="text", name="manager", placeholder="Họ và tên trưởng phòng")
+            .form-group
+              label Ngày thành lập
+              input(type="date", name="establishmentDate")
+            
+            .form-actions
+              button.btn-save(type="submit") Lưu thông tin
+              a.btn-cancel(href="/departments") Hủy bỏ

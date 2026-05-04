@@ -1,0 +1,48 @@
+doctype html
+html
+  head
+    title HRM System - Thêm nhân viên
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    // Sidebar
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        p.menu-label NHÂN SỰ
+        a.menu-item.active(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          .avatar A
+      
+      .content-wrapper
+        .welcome-banner
+          h1 ➕ Thêm nhân viên mới
+          p Điền thông tin chi tiết để khởi tạo hồ sơ nhân sự
+
+        form(method="POST" style="max-width: 600px; margin: 20px auto;")
+          h2 Thông tin cơ bản
+          input(name="name" placeholder="Tên nhân viên" required)
+          input(name="role" placeholder="Chức vụ")
+          input(name="department" placeholder="Phòng ban")
+          
+          .form-actions(style="display: flex; gap: 10px;")
+            button(type="submit") Xác nhận thêm
+            a.btn(href="/employees" style="background: #6b7280; text-decoration: none;") Hủy bỏ

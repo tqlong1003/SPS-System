@@ -1,0 +1,565 @@
+/* ================= VARIABLES ================= */
+:root {
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --secondary: #a855f7;
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --success: #10b981;
+  --success-hover: #059669;
+  --bg-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  --glass: rgba(255, 255, 255, 0.95);
+  --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --radius: 12px;
+}
+
+/* ================= RESET ================= */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-gradient);
+  background-attachment: fixed;
+  min-height: 100vh;
+  color: #1f2937;
+  line-height: 1.5;
+}
+
+/* ================= CONTAINER ================= */
+.container {
+  width: 95%;
+  max-width: 1200px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+h1 {
+  text-align: center;
+  color: white;
+  font-size: 2.5rem;
+  font-weight: 800;
+  margin-bottom: 30px;
+  text-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+/* ================= MENU NAVIGATION ================= */
+.menu {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-bottom: 40px;
+  flex-wrap: wrap;
+}
+
+.menu a {
+  text-decoration: none;
+  color: white;
+  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: 50px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.menu a:hover {
+  background: white;
+  color: var(--primary);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+}
+
+/* ================= FORMS ================= */
+form {
+  background: var(--glass);
+  padding: 35px;
+  margin: 20px auto;
+  max-width: 450px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+form h2 {
+  margin-bottom: 25px;
+  font-weight: 700;
+  color: #111827;
+  position: relative;
+}
+
+form h2::after {
+  content: "";
+  display: block;
+  width: 50px;
+  height: 4px;
+  background: var(--primary);
+  margin: 8px auto 0;
+  border-radius: 2px;
+}
+
+/* ================= INPUTS & BUTTONS ================= */
+input {
+  width: 100%;
+  padding: 12px 16px;
+  margin: 12px 0;
+  border-radius: 8px;
+  border: 2px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 1rem;
+  transition: all 0.2s;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: white;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+}
+
+button, .btn {
+  display: inline-block;
+  width: 100%;
+  padding: 14px;
+  margin-top: 15px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: white;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s;
+  text-align: center;
+}
+
+button:hover {
+  background: var(--primary-hover);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+
+/* ================= TABLES ================= */
+.table-container {
+  overflow-x: auto;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+table {
+  width: 100%;
+  background: white;
+  border-collapse: collapse;
+}
+
+th {
+  background: #f8fafc;
+  color: #64748b;
+  padding: 16px;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+td {
+  padding: 16px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.95rem;
+  color: #334155;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tr:hover {
+  background-color: #f1f5f9;
+}
+
+/* ================= ACTION BUTTONS ================= */
+.btn-edit, .btn-delete {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: white;
+  margin: 0 4px;
+  text-decoration: none;
+  transition: 0.2s;
+}
+
+.btn-edit {
+  background-color: var(--success);
+}
+
+.btn-edit:hover {
+  background-color: var(--success-hover);
+}
+
+.btn-delete {
+  background-color: var(--danger);
+}
+
+.btn-delete:hover {
+  background-color: var(--danger-hover);
+}
+
+/* ================= RESPONSIVE ================= */
+@media (max-width: 768px) {
+  .container {
+    width: 98%;
+    margin: 20px auto;
+  }
+  
+  h1 {
+    font-size: 1.8rem;
+  }
+
+  .menu a {
+    padding: 8px 12px;
+    font-size: 0.9rem;
+  }
+
+  form {
+    padding: 20px;
+  }
+}
+
+/* ================= DASHBOARD GRID ================= */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 25px;
+  margin-top: 20px;
+}
+
+.card {
+  background: var(--glass);
+  padding: 40px 20px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: #1f2937;
+  text-align: center;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.card i {
+  color: var(--primary);
+  margin-bottom: 10px;
+}
+
+.card h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.card p {
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+.card:hover {
+  transform: translateY(-10px);
+  background: white;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+}
+
+/* Biến đổi màu sắc riêng cho từng loại Card */
+.admin-card:hover {
+  border-left: 5px solid var(--secondary);
+}
+
+.logout-card:hover i {
+  color: var(--danger);
+}
+
+.logout-card:hover h3 {
+  color: var(--danger);
+}
+
+/* ================= LAYOUT DASHBOARD ================= */
+.dashboard-body {
+  display: flex;
+  min-height: 100vh;
+  background: #f1f5f9;
+}
+
+/* SIDEBAR */
+.sidebar {
+  width: 250px;
+  background: #111827;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 15px;
+}
+
+.sidebar-header {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-bottom: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.menu-label {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  margin: 15px 10px 5px;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  color: #d1d5db;
+  text-decoration: none;
+  transition: 0.2s;
+}
+
+.menu-item:hover {
+  background: #374151;
+  color: white;
+}
+
+.menu-item.active {
+  background: var(--primary);
+  color: white;
+}
+
+/* FOOTER */
+.sidebar-footer {
+  margin-top: auto;
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: var(--danger);
+  border-radius: 8px;
+  color: white;
+  text-decoration: none;
+}
+
+/* MAIN */
+.main-content {
+  flex: 1;
+  padding: 20px 30px;
+}
+
+/* TOPBAR */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+}
+
+.search-bar {
+  background: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: var(--shadow);
+}
+
+.search-bar input {
+  border: none;
+  outline: none;
+  background: transparent;
+}
+
+/* USER */
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  background: var(--primary);
+  color: white;
+  font-weight: bold;
+  width: 35px;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+/* WELCOME */
+.welcome-banner {
+  background: var(--bg-gradient);
+  color: white;
+  padding: 25px;
+  border-radius: var(--radius);
+  margin-bottom: 25px;
+}
+
+/* STATS */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.stat-card {
+  background: white;
+  padding: 20px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.stat-icon {
+  font-size: 1.5rem;
+  padding: 15px;
+  border-radius: 10px;
+  color: white;
+}
+
+.stat-icon.blue { background: #3b82f6; }
+.stat-icon.green { background: #10b981; }
+.stat-icon.orange { background: #f59e0b; }
+
+.stat-info span {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.stat-info h2 {
+  font-size: 1.4rem;
+}
+
+/* CSS cho Form Thêm/Sửa *Chức Vụ */
+.card-form {
+    background: white;
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+    max-width: 600px;
+    margin: 20px 0;
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 30px;
+    color: var(--primary);
+}
+
+.card-header i {
+    font-size: 1.8rem;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #374151;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 12px 15px;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+}
+
+.form-group input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+    outline: none;
+}
+
+.form-group small {
+    color: #9ca3af;
+    font-size: 0.8rem;
+    display: block;
+    margin-top: 5px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    margin-top: 30px;
+}
+
+.btn-save {
+    flex: 2;
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.btn-save:hover {
+    background: var(--primary-hover);
+}
+
+.btn-cancel {
+    flex: 1;
+    background: #f3f4f6;
+    color: #4b5563;
+    text-align: center;
+    text-decoration: none;
+    padding: 12px;
+    border-radius: 10px;
+    font-weight: bold;
+    transition: background 0.3s;
+}
+
+.btn-cancel:hover {
+    background: #e5e7eb;
+}
+/* Container bao quanh để đẩy form ra giữa */
+.center-wrapper {
+    display: flex;
+    justify-content: center; /* Căn giữa theo chiều ngang */
+    align-items: flex-start; /* Giữ form ở phía trên một chút cho tự nhiên */
+    min-height: 80vh;
+    padding-top: 50px;
+}
+
+.card-form {
+    background: white;
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    width: 100%;
+    max-width: 500px; /* Độ rộng vừa phải cho form */
+    border: 1px solid #f1f5f9;
+}

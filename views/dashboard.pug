@@ -1,0 +1,75 @@
+doctype html
+html
+  head
+    title HRM System - Dashboard
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    // Sidebar bên trái
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item.active(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        
+        p.menu-label NHÂN SỰ
+        a.menu-item(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+        a.menu-item(href="/departments")
+          i.fas.fa-sitemap
+          span Phòng ban
+        a.menu-item(href="/positions")
+          i.fas.fa-briefcase
+          span Chức vụ
+
+        p.menu-label TÀI CHÍNH
+        a.menu-item(href="/salary")
+          i.fas.fa-file-invoice-dollar
+          span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
+      
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+    // Khu vực bên phải
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm nhanh...")
+        .user-info
+          span.welcome Xin chào, 
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .content-wrapper
+        .welcome-banner
+          h1 👋 Chào mừng, #{user.username}
+          p Quản lý hệ thống nhân sự một cách hiệu quả và nhanh chóng
+
+        .stats-grid
+          .stat-card
+            .stat-icon.blue
+              i.fas.fa-user-check
+            .stat-info
+              span Nhân viên hiện tại
+              h2 120
+          .stat-card
+            .stat-icon.green
+              i.fas.fa-building
+            .stat-info
+              span Phòng ban
+              h2 8
+          .stat-card
+            .stat-icon.orange
+              i.fas.fa-clock
+            .stat-info
+              span Chờ duyệt lương
+              h2 15

@@ -1,0 +1,64 @@
+doctype html
+html
+  head
+    title Sửa chức vụ - SPS System
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        p.menu-label NHÂN SỰ
+        a.menu-item(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+        a.menu-item(href="/departments")
+          i.fas.fa-sitemap
+          span Phòng ban
+        a.menu-item.active(href="/positions")
+          i.fas.fa-briefcase
+          span Chức vụ
+        p.menu-label TÀI CHÍNH
+        a.menu-item(href="/salary")
+          i.fas.fa-file-invoice-dollar
+          span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span Xin chào, 
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .content-wrapper
+        .center-wrapper
+          .card-form
+            .card-header
+              i.fas.fa-edit
+              h2(style="margin:0") Sửa thông tin
+            
+            form(method="POST" action=`/positions/edit/${pos._id}`)
+              .form-group
+                label Mã chức vụ
+                input(name="posCode", value=pos.posCode, required)
+              
+              .form-group
+                label Tên chức vụ
+                input(name="posName", value=pos.posName, required)
+              
+              .form-actions
+                button.btn-save(type="submit") Cập nhật
+                a.btn-cancel(href="/positions") Quay lại

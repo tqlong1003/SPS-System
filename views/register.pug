@@ -1,0 +1,35 @@
+doctype html 
+html
+  head
+    title Đăng ký | SPS System
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body
+    .container
+      h1 
+        i.fas.fa-bolt(style="margin-right: 10px")
+        | SPS System
+      
+      form(method="POST")
+        h2 Tạo tài khoản mới
+        
+        if error
+          p(style="color: #ef4444; background: #fee2e2; padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; font-size: 0.9rem; border: 1px solid #fecaca;")
+            i.fas.fa-exclamation-circle(style="margin-right: 5px")
+            | #{error}
+        
+        .form-group
+          label Tên người dùng
+          input(name="username" placeholder="Tên đăng nhập mới" required minlength="3")
+        
+        .form-group
+          label Mật khẩu
+          input(type="password" name="password" placeholder="Ít nhất 6 ký tự" required minlength="6")
+        
+        button(type="submit" style="background: var(--bg-gradient)") 
+          i.fas.fa-user-plus(style="margin-right: 8px")
+          | Tạo tài khoản
+        
+        p(style="text-align: center; margin-top: 20px; font-size: 0.9rem; color: #6b7280;") 
+          | Đã có tài khoản? 
+          a(href="/login" style="color: var(--primary); text-decoration: none; font-weight: 700;") Quay lại Đăng nhập

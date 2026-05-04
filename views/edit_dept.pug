@@ -1,0 +1,56 @@
+doctype html
+html
+  head
+    title Thêm phòng ban - HRM System
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        p.menu-label NHÂN SỰ
+        a.menu-item(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+        a.menu-item.active(href="/departments")
+          i.fas.fa-sitemap
+          span Phòng ban
+        a.menu-item(href="/positions")
+          i.fas.fa-briefcase
+          span Chức vụ
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+          
+    main.main-content
+      .center-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-edit
+            h2 Cập nhật phòng ban
+          
+          form(method="POST", action=`/departments/edit/${dept._id}`)
+            .form-group
+              label Tên phòng ban
+              input(type="text", name="name", value=dept.name, required)
+            .form-group
+              label Mô tả
+              input(type="text", name="description", value=dept.description)
+            .form-group
+              label Trưởng phòng
+              input(type="text", name="manager", value=dept.manager)
+            .form-group
+              label Ngày thành lập
+              input(type="date", name="establishmentDate", value=dept.establishmentDate ? new Date(dept.establishmentDate).toISOString().split('T')[0] : '')
+            
+            .form-actions
+              button.btn-save(type="submit") Cập nhật
+              a.btn-cancel(href="/departments") Quay lại

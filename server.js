@@ -397,6 +397,57 @@ fastify.post('/salary/manage/:empId', { preHandler: [auth, isAdmin] }, async (re
 })
 
 
+// ================= QUẢN LÝ HỢP ĐỒNG =================
+
+// 1. Xem danh sách hợp đồng
+fastify.get('/contracts', { preHandler: [auth] }, async (req, reply) => {
+  const contracts = await fastify.mongo.db.collection('contracts').find().toArray();
+  return reply.view('contracts.pug', { contracts, user: req.user });
+});
+
+// 2. Form thêm hợp đồng (Admin)
+fastify.get('/contracts/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const employees = await fastify.mongo.db.collection('employees').find().toArray();
+  return reply.view('add_contract.pug', { employees, user: req.user });
+});
+
+// 3. Xử lý thêm hợp đồng
+fastify.post('/contracts/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const { contractNumber, signDate, contractType, duration, employeeId } = req.body;
+  await fastify.mongo.db.collection('contracts').insertOne({
+    contractNumber,
+    signDate,
+    contractType,
+    duration,
+    employeeId: new ObjectId(employeeId),
+    createdAt: new Date()
+  });
+  reply.redirect('/contracts');
+});
+
+// Hiển thị form edit
+fastify.get('/contracts/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const contract = await fastify.mongo.db.collection('contracts').findOne({ _id: new ObjectId(req.params.id) });
+  const employees = await fastify.mongo.db.collection('employees').find().toArray();
+  return reply.view('edit_contract.pug', { contract, employees, user: req.user });
+});
+
+// Xử lý lưu dữ liệu
+fastify.post('/contracts/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const { contractNumber, signDate, contractType, duration, employeeId } = req.body;
+  await fastify.mongo.db.collection('contracts').updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { contractNumber, signDate, contractType, duration, employeeId: new ObjectId(employeeId) } }
+  );
+  reply.redirect('/contracts');
+});
+
+// 6. Xóa hợp đồng
+fastify.get('/contracts/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  await fastify.mongo.db.collection('contracts').deleteOne({ _id: new ObjectId(req.params.id) });
+  reply.redirect('/contracts');
+});
+
 // ================= CHẠY SERVER =================
 
 fastify.listen({ port: 3000 }, err => {

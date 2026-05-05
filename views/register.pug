@@ -25,6 +25,10 @@ html
         .form-group
           label Mật khẩu
           input(type="password" name="password" placeholder="Ít nhất 6 ký tự" required minlength="6")
+
+        .form-group
+          label Nhập lại mật khẩu
+          input(type="password" name="confirmPassword" placeholder="Xác nhận mật khẩu" required)
         
         button(type="submit" style="background: var(--bg-gradient)") 
           i.fas.fa-user-plus(style="margin-right: 8px")

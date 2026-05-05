@@ -1,0 +1,71 @@
+doctype html
+html
+  head
+    title Chỉnh sửa hợp đồng
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    // Sidebar
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        p.menu-label NHÂN SỰ
+        a.menu-item(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+        a.menu-item(href="/departments")
+          i.fas.fa-sitemap
+          span Phòng ban
+        a.menu-item(href="/positions")
+          i.fas.fa-briefcase
+          span Chức vụ
+        a.menu-item.active(href="/contracts")
+          i.fas.fa-file-contract
+          span Hợp đồng
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+    main.main-content
+      .center-wrapper
+        .card-form
+          div.card-header
+            i.fas.fa-edit
+            h2 Chỉnh sửa hợp đồng
+          
+          form(action=`/contracts/edit/${contract._id}`, method="POST")
+            .form-group
+              label Số hợp đồng:
+              input(type="text", name="contractNumber", value=contract.contractNumber, required)
+            
+            .form-group
+              label Ngày ký:
+              input(type="date", name="signDate", value=contract.signDate, required)
+            
+            .form-group
+              label Loại hợp đồng:
+              select(name="contractType", style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid #e5e7eb;")
+                option(value="Thử việc", selected=contract.contractType === "Thử việc") Thử việc
+                option(value="Xác định thời hạn", selected=contract.contractType === "Xác định thời hạn") Xác định thời hạn
+                option(value="Không xác định thời hạn", selected=contract.contractType === "Không xác định thời hạn") Không xác định thời hạn
+            
+            .form-group
+              label Thời hạn:
+              input(type="text", name="duration", value=contract.duration, placeholder="VD: 1 năm, 6 tháng...")
+            
+            .form-group
+              label Nhân viên:
+              select(name="employeeId", style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid #e5e7eb;")
+                each emp in employees
+                  option(value=emp._id, selected=contract.employeeId.toString() === emp._id.toString())= emp.name
+            
+            .form-actions
+              button.btn-save(type="submit") Cập nhật thay đổi
+              a.btn-cancel(href="/contracts") Hủy bỏ

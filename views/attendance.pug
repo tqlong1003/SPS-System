@@ -1,23 +1,22 @@
 doctype html
 html
   head
-    title Quản lý chức vụ
+    title Quản lý chấm công
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
   body.dashboard-body
 
-    // Sidebar
     nav.sidebar
       .sidebar-header
         i.fas.fa-bolt
         span SPS System
-      
+
       .sidebar-menu
         p.menu-label CHÍNH
         a.menu-item(href="/dashboard")
           i.fas.fa-th-large
           span Tổng quan
-        
+
         p.menu-label NHÂN SỰ
         a.menu-item(href="/employees")
           i.fas.fa-users
@@ -25,62 +24,72 @@ html
         a.menu-item(href="/departments")
           i.fas.fa-sitemap
           span Phòng ban
-        a.menu-item.active(href="/positions")
+        a.menu-item(href="/positions")
           i.fas.fa-briefcase
           span Chức vụ
-        a.menu-item(href="/attendance")
+        a.menu-item.active(href="/attendance")
           i.fas.fa-calendar-check
           span Chấm công
         a.menu-item(href="/contracts")
           i.fas.fa-file-contract
           span Hợp đồng
 
+
         p.menu-label TÀI CHÍNH
         a.menu-item(href="/salary")
           i.fas.fa-file-invoice-dollar
           span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
-      
+
       .sidebar-footer
         a.logout-btn(href="/logout")
           i.fas.fa-sign-out-alt
           span Đăng xuất
 
-    // Main
     main.main-content
       header.topbar
         .search-bar
           i.fas.fa-search
           input(type="text" placeholder="Tìm kiếm...")
         .user-info
-          span Xin chào, 
+          span Xin chào,
             strong #{user.username}
           .avatar #{user.username.charAt(0).toUpperCase()}
 
       .content-wrapper
-        h1 Danh sách chức vụ
+        h1 Danh sách chấm công
 
         if user.role === 'admin'
-          a.btn-add(href="/positions/add")
+          a.btn-add(href="/attendance/add")
             i.fas.fa-plus
-            |  Thêm chức vụ
+            |  Thêm chấm công
 
         .table-container
           table
             thead
               tr
-                th Mã
-                th Tên chức vụ
+                th Nhân viên
+                th Ngày
+                th Trạng thái
+                th Tăng ca
                 if user.role === 'admin'
-                  th Thao tác
+                  th Hành động
             tbody
-              each pos in positions
+              each record in attendance
                 tr
-                  td= pos.posCode
-                  td= pos.posName
+                  td= record.employeeId
+                  td= record.date
+                  td
+                    case record.status
+                      when 'present'
+                        | Có mặt
+                      when 'absent'
+                        | Vắng mặt
+                      when 'leave'
+                        | Xin nghỉ
+                      default
+                        = record.status
+                  td= record.overtime ? 'Có' : 'Không'
                   if user.role === 'admin'
                     td
-                      a.btn-edit(href=`/positions/edit/${pos._id}`) Sửa
-                      a.btn-delete(
-                        href=`/positions/delete/${pos._id}`, 
-                        onclick="return confirm('Xóa chức vụ này?')"
-                      ) Xóa
+                      a.btn-edit(href=`/attendance/edit/${record._id}`) Sửa
+                      a.btn-delete(href=`/attendance/delete/${record._id}`) Xóa

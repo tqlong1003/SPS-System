@@ -1,0 +1,81 @@
+doctype html
+html
+  head
+    title Chỉnh sửa chấm công - SPS System
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      .sidebar-menu
+        p.menu-label CHÍNH
+        a.menu-item(href="/dashboard")
+          i.fas.fa-th-large
+          span Tổng quan
+        p.menu-label NHÂN SỰ
+        a.menu-item(href="/employees")
+          i.fas.fa-users
+          span Nhân viên
+        a.menu-item(href="/departments")
+          i.fas.fa-sitemap
+          span Phòng ban
+        a.menu-item(href="/positions")
+          i.fas.fa-briefcase
+          span Chức vụ
+        a.menu-item.active(href="/attendance")
+          i.fas.fa-calendar-check
+          span Chấm công
+        p.menu-label TÀI CHÍNH
+        a.menu-item(href="/salary")
+          i.fas.fa-file-invoice-dollar
+          span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
+      .sidebar-footer
+        a.logout-btn(href="/logout")
+          i.fas.fa-sign-out-alt
+          span Đăng xuất
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span Xin chào,
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .center-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-edit
+            h2 Cập nhật chấm công
+
+          form(action=`/attendance/edit/${attendance._id}`, method="POST")
+            .form-group
+              label(for="employeeId") Nhân viên
+              select(name="employeeId", id="employeeId", required)
+                each employee in employees
+                  option(value=employee._id selected=(employee._id.toString() === attendance.employeeId.toString()))= employee.name
+
+            .form-group
+              label(for="date") Ngày chấm công
+              input(type="date", name="date", id="date", value=attendance.date.toISOString().split('T')[0], required)
+
+            .form-group
+              label(for="status") Trạng thái
+              select(name="status", id="status", required)
+                option(value="present" selected=(attendance.status === 'present')) Có mặt
+                option(value="absent" selected=(attendance.status === 'absent')) Vắng mặt
+                option(value="leave" selected=(attendance.status === 'leave')) Xin nghỉ
+
+            .form-group
+              label(for="overtime") Tăng ca
+              label.checkbox-field(for="overtime")
+                input(type="checkbox", name="overtime", id="overtime", checked=attendance.overtime)
+                span Đánh dấu nếu nhân viên có tăng ca
+
+            .form-actions
+              button.btn-save(type="submit") Cập nhật
+              a.btn-cancel(href="/attendance") Quay lại

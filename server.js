@@ -448,6 +448,52 @@ fastify.get('/contracts/delete/:id', { preHandler: [auth, isAdmin] }, async (req
   reply.redirect('/contracts');
 });
 
+// ================= QUẢN LÝ CHẤM CÔNG =================
+// 1. Xem danh sách chấm công
+fastify.get('/attendance', { preHandler: [auth] }, async (req, reply) => {
+  const attendance = await fastify.mongo.db.collection('attendance').find().toArray();
+  return reply.view('attendance.pug', { attendance, user: req.user });
+});
+// 2. Form thêm chấm công (Admin)
+fastify.get('/attendance/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const employees = await fastify.mongo.db.collection('employees').find().toArray();
+  return reply.view('add_attendance.pug', { employees, user: req.user });
+});
+// 3. Xử lý thêm chấm công
+fastify.post('/attendance/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const { employeeId, date, status, overtime } = req.body;
+  await fastify.mongo.db.collection('attendance').insertOne({
+    employeeId: new ObjectId(employeeId),
+    date: new Date(date),
+    status,
+    overtime: Boolean(overtime),
+    createdAt: new Date()
+  });
+  reply.redirect('/attendance');
+});
+// 4. Hiển thị form edit
+fastify.get('/attendance/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const attendance = await fastify.mongo.db.collection('attendance').findOne({ _id: new ObjectId(req.params.id) });
+  const employees = await fastify.mongo.db.collection('employees').find().toArray();
+  return reply.view('edit_attendance.pug', { attendance, employees, user: req.user });
+});
+// 5. Xóa chấm công
+fastify.get('/attendance/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  await fastify.mongo.db.collection('attendance').deleteOne({ _id: new ObjectId(req.params.id) });
+  reply.redirect('/attendance');
+});
+
+// 6. Xử lý lưu dữ liệu
+fastify.post('/attendance/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const { employeeId, date, status } = req.body;
+  await fastify.mongo.db.collection('attendance').updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { employeeId: new ObjectId(employeeId), date, status } }
+  );
+  reply.redirect('/attendance');
+});
+
+
 // ================= CHẠY SERVER =================
 
 fastify.listen({ port: 3000 }, err => {

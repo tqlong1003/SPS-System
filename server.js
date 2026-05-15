@@ -71,40 +71,46 @@ fastify.get('/', async (req, reply) => {
 })
 
 
-// ================= ĐĂNG KÝ =================
+// ================= ĐĂNG KÝ (Chuyển thành Admin tạo tài khoản) =================
 
-// Hiển thị form đăng ký
-fastify.get('/register', async (req, reply) => {
-  return reply.view('register.pug')
+// 1. Hiển thị form đăng ký - Chỉ Admin mới vào được
+fastify.get('/register', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  // Truyền thêm user: req.user để Sidebar hiển thị đúng
+  return reply.view('register.pug', { user: req.user }) 
 })
 
-// Xử lý đăng ký
-
-fastify.post('/register', async (req, reply) => {
+// 2. Xử lý đăng ký - Chỉ Admin mới có quyền thực thi
+fastify.post('/register', { preHandler: [auth, isAdmin] }, async (req, reply) => {
   const { username, password } = req.body;
 
   // Kiểm tra xem username đã tồn tại chưa
   const existingUser = await fastify.mongo.db.collection('users').findOne({ username });
   if (existingUser) {
-    return reply.view('register.pug', { error: 'Tên đăng nhập đã tồn tại!' }); //[cite: 2, 3]
+    return reply.view('register.pug', { 
+      error: 'Tên đăng nhập đã tồn tại!', 
+      user: req.user 
+    }); 
   }
 
-  const hash = await bcrypt.hash(password, 10); //
+  const hash = await bcrypt.hash(password, 10); 
   
+  // Tạo tài khoản User
   const userResult = await fastify.mongo.db.collection('users').insertOne({
     username, 
     password: hash,
-    role: 'user'
-  }); //[cite: 3]
+    role: 'user' // Mặc định là user, admin có thể sửa sau
+  }); 
 
+  // Tạo hồ sơ nhân viên tương ứng
   await fastify.mongo.db.collection('employees').insertOne({
     userId: userResult.insertedId,
     name: username,
-    role: 'Chưa cập nhật',
+    role: 'Nhân viên mới',
     department: 'Chưa cập nhật'
-  }); //[cite: 3]
+  }); 
 
-  reply.redirect('/login');
+  // Sau khi tạo xong, quay về danh sách nhân viên thay vì trang login
+  reply.redirect('/employees'); 
 });
 
 // ================= ĐĂNG NHẬP =================

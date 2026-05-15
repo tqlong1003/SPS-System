@@ -21,6 +21,10 @@ html
         a.menu-item(href="/employees")
           i.fas.fa-users
           span Nhân viên
+        if user.role === 'admin'
+          a.menu-item(href="/register")
+            i.fas.fa-user-plus
+            span Cấp tài khoản mới
         a.menu-item(href="/departments")
           i.fas.fa-sitemap
           span Phòng ban

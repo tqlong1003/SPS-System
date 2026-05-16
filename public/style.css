@@ -231,115 +231,82 @@ tr:hover {
   box-shadow: 0 14px 24px rgba(79, 70, 229, 0.22);
 }
 
-/* ================= RESPONSIVE ================= */
-@media (max-width: 768px) {
-  .container {
-    width: 98%;
-    margin: 20px auto;
-  }
-  
-  h1 {
-    font-size: 1.8rem;
-  }
-
-  .menu a {
-    padding: 8px 12px;
-    font-size: 0.9rem;
-  }
-
-  form {
-    padding: 20px;
-  }
-
-  .dashboard-body {
-    flex-direction: column;
-  }
-
-  .sidebar {
-    width: 100%;
-  }
-
-  .main-content {
-    padding: 16px;
-  }
-
-  .topbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-  }
-
-  .user-info {
-    justify-content: flex-end;
-  }
-
-  .btn-add {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .form-actions {
-    flex-direction: column;
-  }
-}
-
-/* ================= DASHBOARD GRID ================= */
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 25px;
-  margin-top: 20px;
-}
-
-.card {
-  background: var(--glass);
-  padding: 40px 20px;
-  border-radius: var(--radius);
-  text-decoration: none;
-  color: #1f2937;
-  text-align: center;
-  transition: all 0.3s ease;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: var(--shadow);
+/* ================= DROPDOWN SIDEBAR MENU ================= */
+.menu-group {
   display: flex;
   flex-direction: column;
+  margin-bottom: 4px;
+}
+
+.menu-item {
+  display: flex;
   align-items: center;
-  gap: 15px;
+  justify-content: space-between;
+  padding: 12px 15px;
+  border-radius: 8px;
+  color: #d1d5db;
+  text-decoration: none;
+  transition: all 0.2s ease;
 }
 
-.card i {
-  color: var(--primary);
-  margin-bottom: 10px;
+.menu-item > span {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.card h3 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--primary);
+.menu-item:hover {
+  background: #1f2937;
+  color: white;
 }
 
-.card p {
-  font-size: 0.9rem;
+.menu-item.active {
+  background: var(--primary);
+  color: white;
+}
+
+.toggle-icon {
+  font-size: 0.8rem;
+  transition: transform 0.3s ease;
   color: #6b7280;
 }
 
-.card:hover {
-  transform: translateY(-10px);
-  background: white;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+.menu-item:hover .toggle-icon,
+.menu-item.active .toggle-icon {
+  color: white;
 }
 
-/* Biến đổi màu sắc riêng cho từng loại Card */
-.admin-card:hover {
-  border-left: 5px solid var(--secondary);
+.toggle-icon.rotate {
+  transform: rotate(180deg);
 }
 
-.logout-card:hover i {
-  color: var(--danger);
+/* Submenu container logic */
+.submenu {
+  display: none;
+  flex-direction: column;
+  padding-left: 38px;
+  background: #111827;
+  border-left: 2px solid rgba(255, 255, 255, 0.05);
+  margin: 2px 0 8px 15px;
 }
 
-.logout-card:hover h3 {
-  color: var(--danger);
+.submenu.show {
+  display: flex;
+}
+
+.submenu-item {
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  color: #9ca3af;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  border-radius: 6px;
+}
+
+.submenu-item:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.05);
+  padding-left: 18px;
 }
 
 /* ================= LAYOUT DASHBOARD ================= */
@@ -351,64 +318,29 @@ tr:hover {
 
 /* SIDEBAR */
 .sidebar {
-  width: 250px;
+  width: 260px;
   background: #111827;
   color: white;
   display: flex;
   flex-direction: column;
-  padding: 20px 15px;
+  padding: 25px 15px;
+  flex-shrink: 0;
 }
 
 .sidebar-header {
   font-size: 1.5rem;
   font-weight: 800;
-  margin-bottom: 30px;
+  margin-bottom: 35px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  padding-left: 10px;
 }
 
-.menu-label {
-  font-size: 0.7rem;
-  color: #9ca3af;
-  margin: 15px 10px 5px;
-}
-
-.menu-item {
+.sidebar-menu {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px;
-  border-radius: 8px;
-  color: #d1d5db;
-  text-decoration: none;
-  transition: 0.2s;
-}
-
-.menu-item:hover {
-  background: #374151;
-  color: white;
-}
-
-.menu-item.active {
-  background: var(--primary);
-  color: white;
-}
-
-/* FOOTER */
-.sidebar-footer {
-  margin-top: auto;
-}
-
-.logout-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px;
-  background: var(--danger);
-  border-radius: 8px;
-  color: white;
-  text-decoration: none;
+  flex-direction: column;
+  gap: 5px;
 }
 
 /* MAIN */
@@ -512,7 +444,7 @@ tr:hover {
   font-size: 1.4rem;
 }
 
-/* CSS cho Form Thêm/Sửa *Chức Vụ */
+/* ================= FORMS COMPONENT ================= */
 .card-form {
     background: white;
     padding: 40px;
@@ -552,7 +484,7 @@ tr:hover {
     border: 1.5px solid #e5e7eb;
     border-radius: 10px;
     font-size: 1rem;
-  background: white;
+    background: white;
     transition: all 0.3s ease;
 }
 
@@ -561,34 +493,6 @@ tr:hover {
     border-color: var(--primary);
     box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
     outline: none;
-}
-
-.checkbox-field {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 15px;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 10px;
-  background: white;
-  cursor: pointer;
-}
-
-.checkbox-field input {
-  width: auto;
-  margin: 0;
-}
-
-.checkbox-field span {
-  color: #374151;
-  font-weight: 500;
-}
-
-.form-group small {
-    color: #9ca3af;
-    font-size: 0.8rem;
-    display: block;
-    margin-top: 5px;
 }
 
 .form-actions {
@@ -628,21 +532,18 @@ tr:hover {
 .btn-cancel:hover {
     background: #e5e7eb;
 }
-/* Container bao quanh để đẩy form ra giữa */
-.center-wrapper {
-    display: flex;
-    justify-content: center; /* Căn giữa theo chiều ngang */
-    align-items: flex-start; /* Giữ form ở phía trên một chút cho tự nhiên */
-    min-height: 80vh;
-    padding-top: 50px;
-}
 
-.card-form {
-    background: white;
-    padding: 40px;
-    border-radius: 15px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+/* ================= RESPONSIVE ================= */
+@media (max-width: 768px) {
+  .dashboard-body {
+    flex-direction: column;
+  }
+
+  .sidebar {
     width: 100%;
-    max-width: 500px; /* Độ rộng vừa phải cho form */
-    border: 1px solid #f1f5f9;
+  }
+
+  .main-content {
+    padding: 16px;
+  }
 }

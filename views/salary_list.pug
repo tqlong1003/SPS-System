@@ -1,49 +1,94 @@
 doctype html
 html
   head
-    title HRM System - Bảng lương
+    title Bảng lương - HRM System
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
   body.dashboard-body
-    // Sidebar đồng bộ với Dashboard
     nav.sidebar
       .sidebar-header
         i.fas.fa-bolt
         span SPS System
       
       .sidebar-menu
-        p.menu-label CHÍNH
-        a.menu-item(href="/dashboard")
-          i.fas.fa-th-large
-          span Tổng quan
-        
-        p.menu-label NHÂN SỰ
-        a.menu-item(href="/employees")
-          i.fas.fa-users
-          span Nhân viên
-        a.menu-item(href="/departments")
-          i.fas.fa-sitemap
-          span Phòng ban
-        a.menu-item(href="/positions")
-          i.fas.fa-briefcase
-          span Chức vụ
-        a.menu-item(href="/attendance")
-          i.fas.fa-calendar-check
-          span Chấm công
-        a.menu-item(href="/contracts")
-          i.fas.fa-file-contract
-          span Hợp đồng
+        // --- TỔNG QUAN ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-th-large
+              span Tổng quan
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="/dashboard") Thống kê
+            a.submenu-item(href="/employees") Danh sách nhân viên
+            a.submenu-item(href="#") Danh sách tài khoản
 
+        // --- NHÂN VIÊN ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-users
+              span Nhân viên
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="/departments") Phòng ban
+            a.submenu-item(href="/positions") Chức vụ
+            a.submenu-item(href="#") Trình độ
+            a.submenu-item(href="#") Chuyên môn
+            a.submenu-item(href="#") Bằng cấp
+            a.submenu-item(href="/attendance") Chấm công
+            a.submenu-item(href="/contracts") Hợp đồng
+            if user.role === 'admin'
+              a.submenu-item(href="/employees/add") Thêm mới nhân viên
+              a.submenu-item(href="/employees") Danh sách nhân viên
 
-        p.menu-label TÀI CHÍNH
-        a.menu-item.active(href="/salary")
-          i.fas.fa-file-invoice-dollar
-          span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
-      
-      .sidebar-footer
-        a.logout-btn(href="/logout")
-          i.fas.fa-sign-out-alt
-          span Đăng xuất
+        // --- QUẢN LÝ LƯƠNG ---
+        .menu-group
+          a.menu-item.has-submenu.active(href="#")
+            span
+              i.fas.fa-file-invoice-dollar
+              span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
+            i.fas.fa-chevron-down.toggle-icon.rotate
+          .submenu.show
+            a.submenu-item.active(href="/salary") Bảng tính lương
+            if user.role === 'admin'
+              a.submenu-item(href="/salary") Tính lương
+
+        // --- QUẢN LÝ CÔNG TÁC ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-plane-departure
+              span Quản lý công tác
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Danh sách công tác
+
+        // --- KHEN THƯỞNG - KỶ LUẬT ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-award
+              span Khen thưởng - Kỷ luật
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Khen thưởng
+            a.submenu-item(href="#") Kỷ luật
+
+        // --- TÀI KHOẢN ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-user-cog
+              span Tài khoản
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Thông tin tài khoản
+            a.submenu-item(href="#") Danh sách tài khoản
+            if user.role === 'admin'
+              a.submenu-item(href="/register") Tạo tài khoản
+            a.submenu-item(href="#") Đổi mật khẩu
+            a.submenu-item(href="/logout") Đăng xuất
 
     main.main-content
       header.topbar
@@ -57,10 +102,14 @@ html
 
       .content-wrapper
         .welcome-banner
-          h1 💰 Bảng lương tháng #{currentMonth}
-          p Theo dõi và quản lý thu nhập của nhân viên hệ thống
+          if user.role === 'admin'
+            h1 💰 Bảng lương tháng #{currentMonth}
+            p Theo dõi và quản lý thu nhập của nhân viên hệ thống
+          else
+            h1 💰 Lịch sử lương của bạn
+            p Theo dõi toàn bộ lịch sử nhận lương cá nhân
 
-        //- PHẦN DÀNH CHO ADMIN
+        // ================= ADMIN FILTER =================
         if user.role === 'admin'
           .stats-grid(style="margin-bottom: 20px;")
             .stat-card
@@ -69,23 +118,32 @@ html
                 input(type="month" name="month" value=currentMonth)
                 button.btn-edit(type="submit" style="margin: 0; padding: 5px 15px;") Lọc
 
-          .table-container
+          .table-container(style="margin-bottom: 20px;")
             table
               thead
                 tr
                   th Nhân viên
                   th Hành động
               tbody
-                each emp in employees
+                if employees && employees.length > 0
+                  each emp in employees
+                    tr
+                      td= emp.name
+                      td
+                        a.btn-edit(href=`/salary/manage/${emp._id}`)
+                          i.fas.fa-calculator
+                          |  Tính lương
+                else
                   tr
-                    td= emp.name
-                    td
-                      a.btn-edit(href=`/salary/manage/${emp._id}`) 
-                        i.fas.fa-calculator
-                        |  Tính lương
+                    td(colspan="2", style="text-align: center;") Không tìm thấy nhân sự để tính lương
 
-        //- PHẦN DÀNH CHO TẤT CẢ (XEM LƯƠNG CỦA MÌNH)
-        h2(style="margin: 20px 0;") Chi tiết lương của bạn
+        // ================= CHI TIẾT LƯƠNG TỪNG THÁNG =================
+        h2(style="margin: 20px 0;")
+          if user.role === 'admin'
+            | Chi tiết lương tháng #{currentMonth}
+          else
+            | Lịch sử lương các tháng
+
         .table-container
           table
             thead
@@ -97,7 +155,7 @@ html
                 th Tạm ứng
                 th Thực nhận
             tbody
-              if salaries.length > 0
+              if salaries && salaries.length > 0
                 each s in salaries
                   tr
                     td= s.month
@@ -108,4 +166,29 @@ html
                     td(style="font-weight: bold; color: #2ecc71;")= s.finalSalary.toLocaleString() + 'đ'
               else
                 tr
-                  td(colspan="6", style="text-align: center; padding: 30px;") Chưa có dữ liệu lương cho tháng này.
+                  td(colspan="6" style="text-align: center; padding: 30px;")
+                    if user.role === 'admin'
+                      | Chưa có dữ liệu lương cho tháng này.
+                    else
+                      | Bạn chưa có lịch sử lương nào.
+
+    script.
+      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
+        item.addEventListener('click', function(e) {
+          e.preventDefault();
+          const menuGroup = this.closest('.menu-group');
+          const submenu = menuGroup.querySelector('.submenu');
+          const toggleIcon = this.querySelector('.toggle-icon');
+          
+          document.querySelectorAll('.submenu').forEach(sub => {
+            if (sub !== submenu) {
+              sub.classList.remove('show');
+              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
+              if(icon) icon.classList.remove('rotate');
+            }
+          });
+
+          submenu.classList.toggle('show');
+          toggleIcon.classList.toggle('rotate');
+        });
+      });

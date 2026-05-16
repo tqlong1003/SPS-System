@@ -5,49 +5,99 @@ html
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
   body.dashboard-body
+    // Sidebar bên trái
     nav.sidebar
       .sidebar-header
         i.fas.fa-bolt
         span SPS System
+      
       .sidebar-menu
-        p.menu-label CHÍNH
-        a.menu-item(href="/dashboard")
-          i.fas.fa-th-large
-          span Tổng quan
+        // --- TỔNG QUAN ---
+        .menu-group
+          a.menu-item.has-submenu.active(href="#")
+            span
+              i.fas.fa-th-large
+              span Tổng quan
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu.show
+            a.submenu-item(href="/dashboard") Thống kê
+            a.submenu-item(href="/employees") Danh sách nhân viên
+            a.submenu-item(href="#") Danh sách tài khoản
 
-        p.menu-label NHÂN SỰ
-        a.menu-item(href="/employees")
-          i.fas.fa-users
-          span Nhân viên
-        a.menu-item(href="/departments")
-          i.fas.fa-sitemap
-          span Phòng ban
-        a.menu-item(href="/positions")
-          i.fas.fa-briefcase
-          span Chức vụ
-        a.menu-item.active(href="/attendance")
-          i.fas.fa-calendar-check
-          span Chấm công
-        a.menu-item(href="/contracts")
-          i.fas.fa-file-contract
-          span Hợp đồng
+        // --- NHÂN VIÊN ---
+        .menu-group
+          a.menu-item.has-submenu.active(href="#")
+            span
+              i.fas.fa-users
+              span Nhân viên
+            i.fas.fa-chevron-down.toggle-icon.rotate
+          .submenu.show
+            a.submenu-item(href="/departments") Phòng ban
+            a.submenu-item(href="/positions") Chức vụ
+            a.submenu-item(href="#") Trình độ
+            a.submenu-item(href="#") Chuyên môn
+            a.submenu-item(href="#") Bằng cấp
+            a.submenu-item.active(href="/attendance") Chấm công
+            a.submenu-item(href="/contracts") Hợp đồng
+            if user.role === 'admin'
+              a.submenu-item(href="/employees/add") Thêm mới nhân viên
+              a.submenu-item(href="/employees") Danh sách nhân viên
 
-        p.menu-label TÀI CHÍNH
-        a.menu-item(href="/salary")
-          i.fas.fa-file-invoice-dollar
-          span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
-      .sidebar-footer
-        a.logout-btn(href="/logout")
-          i.fas.fa-sign-out-alt
-          span Đăng xuất
+        // --- QUẢN LÝ LƯƠNG ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-file-invoice-dollar
+              span Quản lý lương
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="/salary") Bảng tính lương
+            if user.role === 'admin'
+              a.submenu-item(href="/salary") Tính lương
+
+        // --- QUẢN LÝ CÔNG TÁC ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-plane-departure
+              span Quản lý công tác
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Danh sách công tác
+
+        // --- KHEN THƯỞNG - KỶ LUẬT ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-award
+              span Khen thưởng - Kỷ luật
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Khen thưởng
+            a.submenu-item(href="#") Kỷ luật
+
+        // --- TÀI KHOẢN ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-user-cog
+              span Tài khoản
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Thông tin tài khoản
+            a.submenu-item(href="#") Danh sách tài khoản
+            if user.role === 'admin'
+              a.submenu-item(href="/register") Tạo tài khoản
+            a.submenu-item(href="#") Đổi mật khẩu
+            a.submenu-item(href="/logout") Đăng xuất
 
     main.main-content
       header.topbar
         .search-bar
           i.fas.fa-search
-          input(type="text" placeholder="Tìm kiếm...")
+          input(type="text" placeholder="Tìm kiếm nhanh...")
         .user-info
-          span Xin chào,
+          span.welcome Xin chào, 
             strong #{user.username}
           .avatar #{user.username.charAt(0).toUpperCase()}
 
@@ -84,6 +134,14 @@ html
 
             .form-actions
               button.btn-save(type="submit") Lưu chấm công
-              a.btn-cancel(href="/attendance") Hủy bỏ
 
-       
+    script.
+      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
+        item.addEventListener('click', function(e) {
+          e.preventDefault();
+          const menuGroup = this.closest('.menu-group');
+          const submenu = menuGroup.querySelector('.submenu');
+          submenu.classList.toggle('show');
+          this.querySelector('.toggle-icon').classList.toggle('rotate');
+        });
+      });

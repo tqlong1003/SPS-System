@@ -1,13 +1,19 @@
 // ================= CÁC THƯ VIỆN CẦN DÙNG =================
 const path = require('node:path')
+const fs = require('node:fs') // Thư viện Node.js quản lý tệp tin (Được thêm để lưu ảnh)
 const fastify = require('fastify')({ logger: true })
 const bcrypt = require('bcrypt')
 const { ObjectId } = require('mongodb')
 
 
 // ================= CÁC PLUGINS CẦN DÙNG =================
-// Cho phép đọc dữ liệu từ form (method POST)
+// Cho phép đọc dữ liệu từ form (method POST thông thường)
 fastify.register(require('@fastify/formbody'))
+
+// Đăng ký xử lý tải tệp tin (Được thêm để xử lý multipart/form-data)
+fastify.register(require('@fastify/multipart'), {
+  addToBody: true // Tự động chuyển các trường text thông thường vào req.body để quản lý thuận tiện
+})
 
 // Quản lý cookie (lưu token đăng nhập)
 fastify.register(require('@fastify/cookie'))
@@ -161,9 +167,52 @@ fastify.get('/employees/add', { preHandler: [auth, isAdmin] }, async (req, reply
   return reply.view('add.pug', { user: req.user })
 })
 
+// ĐÃ CẬP NHẬT: Xử lý nhận file ảnh tải lên và lưu trữ thông tin nhân viên
 fastify.post('/employees/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  await fastify.mongo.db.collection('employees').insertOne(req.body)
-  reply.redirect('/employees')
+  try {
+    const data = await req.file()
+    let avatarPath = ''
+
+    // Nếu có file ảnh được tải lên từ máy tính
+    if (data && data.file) {
+      const filename = Date.now() + '-' + data.filename
+      const uploadDir = path.join(__dirname, 'public', 'uploads')
+      
+      // Tạo tự động thư mục "uploads" nếu chưa có cấu trúc này trong dự án
+      if (!fs.existsSync(uploadDir)){
+          fs.mkdirSync(uploadDir, { recursive: true })
+      }
+
+      const saveTo = path.join(uploadDir, filename)
+      
+      // Tiến hành đưa luồng dữ liệu file ghi vào ổ đĩa cứng
+      await new Promise((resolve, reject) => {
+        const writeStream = fs.createWriteStream(saveTo)
+        data.file.pipe(writeStream)
+        data.file.on('end', resolve)
+        data.file.on('error', reject)
+      })
+
+      // Đường dẫn ảo dùng để hiển thị trên trình duyệt (qua cấu hình static)
+      avatarPath = `/public/uploads/${filename}`
+    }
+
+    // Đọc các trường dữ liệu text thông thường gửi kèm trong form
+    const employeeData = {}
+    for (const key in data.fields) {
+      employeeData[key] = data.fields[key].value
+    }
+
+    // Gán đường dẫn lưu trữ file ảnh vào thuộc tính avatar của nhân viên
+    employeeData.avatar = avatarPath
+
+    await fastify.mongo.db.collection('employees').insertOne(employeeData)
+    reply.redirect('/employees')
+
+  } catch (err) {
+    fastify.log.error(err)
+    return reply.status(500).send('❌ Đã xảy ra lỗi hệ thống trong quá trình upload ảnh!')
+  }
 })
 
 fastify.get('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
@@ -172,11 +221,55 @@ fastify.get('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, 
 })
 
 fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  await fastify.mongo.db.collection('employees').updateOne(
-    { _id: new ObjectId(req.params.id) },
-    { $set: req.body }
-  )
-  reply.redirect('/employees')
+  try {
+    const data = await req.file()
+    
+    // Lấy thông tin nhân viên cũ để giữ lại ảnh cũ nếu user không tải ảnh mới
+    const oldEmp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
+    let avatarPath = oldEmp ? oldEmp.avatar : ''
+
+    // Nếu người dùng có chọn file ảnh mới để thay đổi
+    if (data && data.file && data.filename) {
+      const filename = Date.now() + '-' + data.filename
+      const uploadDir = path.join(__dirname, 'public', 'uploads')
+      
+      if (!fs.existsSync(uploadDir)){
+          fs.mkdirSync(uploadDir, { recursive: true })
+      }
+
+      const saveTo = path.join(uploadDir, filename)
+      
+      await new Promise((resolve, reject) => {
+        const writeStream = fs.createWriteStream(saveTo)
+        data.file.pipe(writeStream)
+        data.file.on('end', resolve)
+        data.file.on('error', reject)
+      })
+
+      avatarPath = `/public/uploads/${filename}`
+    }
+
+    // Đọc các trường dữ liệu text từ form truyền lên bao gồm cả trường email mới bổ sung
+    const updatedEmployeeData = {}
+    for (const key in data.fields) {
+      updatedEmployeeData[key] = data.fields[key].value
+    }
+
+    // Gán đường dẫn ảnh đại diện (giữ cũ hoặc dùng cái mới vừa upload)
+    updatedEmployeeData.avatar = avatarPath
+
+    // Cập nhật vào Cơ sở dữ liệu MongoDB
+    await fastify.mongo.db.collection('employees').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: updatedEmployeeData }
+    )
+    
+    reply.redirect('/employees')
+
+  } catch (err) {
+    fastify.log.error(err)
+    return reply.status(500).send('❌ Đã xảy ra lỗi trong quá trình cập nhật hồ sơ nhân viên!')
+  }
 })
 
 fastify.get('/employees/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
@@ -184,6 +277,19 @@ fastify.get('/employees/delete/:id', { preHandler: [auth, isAdmin] }, async (req
   reply.redirect('/employees')
 })
 
+// Xem chi tiết nhân viên (Cả Admin và User thường đều có quyền xem)
+fastify.get('/employees/detail/:id', { preHandler: [auth] }, async (req, reply) => {
+  try {
+    const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) });
+    if (!emp) {
+      return reply.code(404).send('Không tìm thấy nhân viên');
+    }
+    return reply.view('detail.pug', { emp, user: req.user });
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send('Lỗi máy chủ');
+  }
+});
 
 // ================= QUẢN LÝ PHÒNG BAN =================
 fastify.get('/departments', { preHandler: [auth] }, async (req, reply) => {

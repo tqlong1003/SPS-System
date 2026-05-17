@@ -4,6 +4,10 @@ html
     title HRM System - Chỉnh sửa nhân viên
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+    style.
+      .form-row { display: flex; gap: 20px; }
+      .form-row .form-group { flex: 1; }
+      @media (max-width: 768px) { .form-row { flex-direction: column; gap: 0; } }
   body.dashboard-body
     // Sidebar bên trái
     nav.sidebar
@@ -14,12 +18,12 @@ html
       .sidebar-menu
         // --- TỔNG QUAN ---
         .menu-group
-          a.menu-item.has-submenu.active(href="#")
+          a.menu-item.has-submenu(href="#")
             span
               i.fas.fa-th-large
               span Tổng quan
             i.fas.fa-chevron-down.toggle-icon
-          .submenu.show
+          .submenu
             a.submenu-item(href="/dashboard") Thống kê
             a.submenu-item(href="/employees") Danh sách nhân viên
             a.submenu-item(href="#") Danh sách tài khoản
@@ -37,7 +41,7 @@ html
             a.submenu-item(href="#") Trình độ
             a.submenu-item(href="#") Chuyên môn
             a.submenu-item(href="#") Bằng cấp
-            a.submenu-item.active(href="/attendance") Chấm công
+            a.submenu-item(href="/attendance") Chấm công
             a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
               a.submenu-item(href="/employees/add") Thêm mới nhân viên
@@ -91,8 +95,9 @@ html
             a.submenu-item(href="#") Đổi mật khẩu
             a.submenu-item(href="/logout") Đăng xuất
 
-    main.main-content
-      header.topbar
+    // Main Content bên phải
+    .main-content
+      header.top-nav
         .search-bar
           i.fas.fa-search
           input(type="text" placeholder="Tìm kiếm nhanh...")
@@ -100,23 +105,145 @@ html
           span.welcome Xin chào, 
             strong #{user.username}
           .avatar #{user.username.charAt(0).toUpperCase()}
-
+      
       .content-wrapper
         .welcome-banner
-          h1 📝 Chỉnh sửa nhân viên
-          p Cập nhật thông tin mới nhất cho nhân sự: #[strong #{emp.name}]
+          h1 📝 Chỉnh sửa hồ sơ nhân viên
+          p Cập nhật lại các thông tin thay đổi của nhân viên vào hệ thống.
+        
+        .card(style="max-width: 900px; margin: 30px auto;")
+          .card-header
+            i.fas.fa-user-edit(style="color: var(--primary);")
+            h2 Sơ yếu lý lịch nhân viên
 
-        form(method="POST" style="max-width: 600px; margin: 20px auto;")
-          h2 Cập nhật hồ sơ
-          label Tên nhân viên
-          input(name="name" value=emp.name required)
-          label Chức vụ
-          input(name="role" value=emp.role)
-          label Phòng ban
-          input(name="department" value=emp.department)
-          .form-actions(style="display: flex; gap: 10px; margin-top: 20px;")
-            button.btn-save(type="submit") Cập nhật
-            a.btn-cancel(href="/employees") Hủy
+          // ĐÃ CẬP NHẬT: Thêm enctype="multipart/form-data" để gửi được file ảnh lên
+          form(method="POST" enctype="multipart/form-data")
+            // KHỐI 1: THÔNG TIN CƠ BẢN
+            h3(style="margin-bottom: 15px; color: var(--primary); border-bottom: 1px solid #eee; padding-bottom: 5px;") 
+              i.fas.fa-id-card(style="margin-right: 8px;") 
+              | Thông tin định danh & Cơ bản
+            
+            .form-row
+              .form-group
+                label Mã nhân viên <span style="color:red">*</span>
+                input(type="text" name="employeeCode" value=emp.employeeCode placeholder="Ví dụ: NV001" required)
+              .form-group
+                label Tên nhân viên <span style="color:red">*</span>
+                input(type="text" name="name" value=emp.name placeholder="Nhập họ và tên đầy đủ" required)
+            
+            .form-row
+              .form-group
+                // ĐÃ CẬP NHẬT: Cho phép chọn ảnh tải lên thay vì nhập link text
+                label Thay đổi ảnh đại diện
+                input(type="file" name="avatar" accept="image/*")
+                if emp.avatar
+                  div(style="margin-top: 5px;")
+                    small Ảnh hiện tại: 
+                    a(href=emp.avatar target="_blank" style="color: var(--primary);") Xem ảnh
+              .form-group
+                label Giới tính
+                select(name="gender")
+                  option(value="Nam" selected=emp.gender==='Nam') Nam
+                  option(value="Nữ" selected=emp.gender==='Nữ') Nữ
+                  option(value="Khác" selected=emp.gender==='Khác') Khác
+
+            .form-row
+              .form-group
+                label Ngày sinh
+                input(type="date" name="dob" value=emp.dob)
+              .form-group
+                label Nơi sinh
+                input(type="text" name="pob" value=emp.pob placeholder="Ví dụ: Hà Nội")
+
+            .form-row
+              .form-group
+                label Nguyên quán
+                input(type="text" name="hometown" value=emp.hometown placeholder="Quê quán đăng ký khai sinh")
+              .form-group
+                label Quốc tịch
+                input(type="text" name="nationality" value=emp.nationality || "Việt Nam")
+
+            .form-row
+              .form-group
+                label Số CCCD / CMND
+                input(type="text" name="cccd" value=emp.cccd placeholder="Nhập 12 số định danh công dân")
+              .form-group
+                label Ngày cấp CCCD
+                input(type="date" name="cccdDate" value=emp.cccdDate)
+
+            // ĐÃ CẬP NHẬT: Thêm trường Email song song với Số điện thoại
+            .form-row
+              .form-group
+                label Số điện thoại
+                input(type="tel" name="phone" value=emp.phone placeholder="Ví dụ: 0912345678" pattern="[0-9]{10,11}")
+              .form-group
+                label Email nhân viên <span style="color:red">*</span>
+                input(type="email" name="email" value=emp.email placeholder="Ví dụ: nguyenvanb@company.com" required)
+
+            // KHỐI 2: ĐỊA CHỈ & THÀNH PHẦN KHÁC
+            h3(style="margin: 25px 0 15px 0; color: var(--primary); border-bottom: 1px solid #eee; padding-bottom: 5px;") 
+              i.fas.fa-map-marked-alt(style="margin-right: 8px;") 
+              | Địa chỉ cư trú & Thành phần dân cư
+
+            .form-group
+              label Hộ khẩu thường trú
+              input(type="text" name="permanentAddress" value=emp.permanentAddress placeholder="Địa chỉ theo sổ hộ khẩu / CCCD")
+            
+            .form-group
+              label Nơi ở tạm trú
+              input(type="text" name="temporaryAddress" value=emp.temporaryAddress placeholder="Địa chỉ nơi ở hiện tại")
+
+            .form-row
+              .form-group
+                label Dân tộc
+                input(type="text" name="ethnicity" value=emp.ethnicity || "Kinh")
+              .form-group
+                label Tôn giáo
+                input(type="text" name="religion" value=emp.religion || "Không")
+
+            // KHỐI 3: CÔNG VIỆC & TRÌNH ĐỘ
+            h3(style="margin: 25px 0 15px 0; color: var(--primary); border-bottom: 1px solid #eee; padding-bottom: 5px;") 
+              i.fas.fa-briefcase(style="margin-right: 8px;") 
+              | Vị trí công tác & Trình độ học vấn
+
+            .form-row
+              .form-group
+                label Phòng ban
+                input(type="text" name="department" value=emp.department placeholder="Ví dụ: Phòng Công nghệ, Hành chính...")
+              .form-group
+                label Chức vụ
+                input(type="text" name="role" value=emp.role placeholder="Ví dụ: Developer, Trưởng phòng...")
+
+            .form-row
+              .form-group
+                label Loại nhân viên
+                select(name="employeeType")
+                  option(value="Chính thức" selected=emp.employeeType==='Chính thức') Chính thức
+                  option(value="Thử việc" selected=emp.employeeType==='Thử việc') Thử việc
+                  option(value="Thực tập" selected=emp.employeeType==='Thực tập') Thực tập
+              .form-group
+                label Trạng thái làm việc
+                select(name="status")
+                  option(value="Đang làm việc" selected=emp.status==='Đang làm việc') Đang làm việc
+                  option(value="Đang thử việc" selected=emp.status==='Đang thử việc') Đang thử việc
+                  option(value="Đã nghỉ việc" selected=emp.status==='Đã nghỉ việc') Đã nghỉ việc
+                  option(value="Tạm hoãn" selected=emp.status==='Tạm hoãn') Tạm hoãn
+
+            .form-row
+              .form-group
+                label Trình độ đào tạo
+                input(type="text" name="educationLevel" value=emp.educationLevel placeholder="Ví dụ: Đại học, Cao đẳng, Thạc sĩ...")
+              .form-group
+                label Bằng cấp chuyên môn
+                input(type="text" name="degree" value=emp.degree placeholder="Ví dụ: Kỹ sư CNTT, Cử nhân Kế toán...")
+
+            .form-actions
+              button.btn-save(type="submit") 
+                i.fas.fa-save(style="margin-right: 8px;")
+                | Lưu hồ sơ nhân viên
+              a.btn-cancel(href="/employees") 
+                i.fas.fa-times(style="margin-right: 8px;")
+                | Hủy bỏ
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
@@ -127,9 +254,14 @@ html
           const toggleIcon = this.querySelector('.toggle-icon');
           
           document.querySelectorAll('.submenu').forEach(sub => {
-            if (sub !== submenu) sub.classList.remove('show');
+            if (sub !== submenu) {
+              sub.classList.remove('show');
+              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
+              if(icon) icon.classList.remove('rotate');
+            }
           });
+
           submenu.classList.toggle('show');
-          toggleIcon.classList.toggle('rotate');
+          if (toggleIcon) toggleIcon.classList.toggle('rotate');
         });
       });

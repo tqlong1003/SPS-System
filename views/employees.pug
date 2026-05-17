@@ -105,8 +105,6 @@ html
           h1 👨‍💼 Quản lý nhân viên
           p Danh sách và chi tiết lý lịch hồ sơ toàn bộ nhân sự trong hệ thống
 
-        // Đã bỏ nút "➕ Thêm nhân viên" ở khu vực này theo yêu cầu của bạn
-
         .table-container
           table
             thead
@@ -114,8 +112,7 @@ html
                 th Tên nhân viên
                 th Chức vụ
                 th Phòng ban
-                if user.role === 'admin'
-                  th Hành động
+                th Hành động
             tbody
               if employees && employees.length > 0
                 each emp in employees
@@ -123,13 +120,19 @@ html
                     td(style="font-weight: bold;")= emp.name
                     td= emp.role
                     td= emp.department
-                    if user.role === 'admin'
-                      td
-                        a.btn-edit(href=`/employees/edit/${emp._id}`) Sửa
-                        a.btn-delete(href=`/employees/delete/${emp._id}`, onclick="return confirm('Xóa?')", style="margin-left: 5px;") Xóa
+                    td
+                      // Nút Xem chi tiết áp dụng cho tất cả các phân quyền tài khoản
+                      a.btn-edit(href=`/employees/detail/${emp._id}`, style="background: var(--primary); margin-right: 5px; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") 
+                        i.fas.fa-eye(style="margin-right: 4px;")
+                        
+                      
+                      // Chỉ hiển thị Sửa/Xóa đối với tài khoản Admin
+                      if user.role === 'admin'
+                        a.btn-edit(href=`/employees/edit/${emp._id}`, style="padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") Sửa
+                        a.btn-delete(href=`/employees/delete/${emp._id}`, onclick="return confirm('Bạn có chắc chắn muốn xóa nhân viên này?')", style="margin-left: 5px; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") Xóa
               else
                 tr
-                  td(colspan=user.role === 'admin' ? "4" : "3", style="text-align: center; padding: 20px;") Chưa có dữ liệu nhân viên
+                  td(colspan="4", style="text-align: center; padding: 20px;") Chưa có dữ liệu nhân viên
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {

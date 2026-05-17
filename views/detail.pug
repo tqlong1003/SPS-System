@@ -1,0 +1,191 @@
+doctype html
+html
+  head
+    title HRM System - Chi tiết nhân viên
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+    style.
+      .profile-container { background: white; padding: 30px; border-radius: var(--radius); box-shadow: var(--shadow); }
+      .profile-header { display: flex; align-items: center; gap: 20px; border-bottom: 2px solid #f3f4f6; padding-bottom: 20px; margin-bottom: 25px; }
+      .profile-avatar { width: 80px; height: 80px; background: var(--bg-gradient); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; }
+      .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+      .info-group { background: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid var(--primary); }
+      .info-label { font-size: 0.85rem; color: #6b7280; text-transform: uppercase; margin-bottom: 5px; font-weight: bold; }
+      .info-value { font-size: 1.1rem; color: #1f2937; font-weight: 600; }
+      @media (max-width: 768px) { .info-grid { grid-template-columns: 1fr; } }
+  body.dashboard-body
+    // Sidebar bên trái
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      
+      .sidebar-menu
+        // --- TỔNG QUAN ---
+        .menu-group
+          //- BỎ class .active để menu ở trạng thái đóng mặc định
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-th-large
+              span Tổng quan
+            i.fas.fa-chevron-down.toggle-icon
+          //- BỎ class .show để submenu ẩn đi lúc ban đầu
+          .submenu
+            a.submenu-item(href="/dashboard") Thống kê
+            a.submenu-item(href="/employees") Danh sách nhân viên
+            a.submenu-item(href="#") Danh sách tài khoản
+
+        // --- NHÂN VIÊN ---
+        .menu-group
+          a.menu-item.has-submenu.active(href="#")
+            span
+              i.fas.fa-users
+              span Nhân viên
+            i.fas.fa-chevron-down.toggle-icon.rotate
+          .submenu.show
+            a.submenu-item(href="/departments") Phòng ban
+            a.submenu-item(href="/positions") Chức vụ
+            a.submenu-item(href="#") Trình độ
+            a.submenu-item(href="#") Chuyên môn
+            a.submenu-item(href="#") Bằng cấp
+            a.submenu-item(href="/attendance") Chấm công
+            a.submenu-item(href="/contracts") Hợp đồng
+            if user.role === 'admin'
+              a.submenu-item(href="/employees/add") Thêm mới nhân viên
+              a.submenu-item(href="/employees") Danh sách nhân viên
+
+        // --- QUẢN LÝ LƯƠNG ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-file-invoice-dollar
+              span Quản lý lương
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="/salary") Bảng tính lương
+            if user.role === 'admin'
+              a.submenu-item(href="/salary") Tính lương
+
+        // --- QUẢN LÝ CÔNG TÁC ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-plane-departure
+              span Quản lý công tác
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Danh sách công tác
+
+        // --- KHEN THƯỞNG - KỶ LUẬT ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-award
+              span Khen thưởng - Kỷ luật
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Khen thưởng
+            a.submenu-item(href="#") Kỷ luật
+
+        // --- TÀI KHOẢN ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-user-cog
+              span Tài khoản
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Thông tin tài khoản
+            a.submenu-item(href="#") Danh sách tài khoản
+            if user.role === 'admin'
+              a.submenu-item(href="/register") Tạo tài khoản
+            a.submenu-item(href="#") Đổi mật khẩu
+            a.submenu-item(href="/logout") Đăng xuất
+
+    // Khung nội dung chính
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào, 
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .content-wrapper
+        .profile-container
+          .profile-header
+            if emp.avatar
+              img(src=emp.avatar, alt="Avatar", style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; box-shadow: var(--shadow);")
+            else
+              .profile-avatar= emp.name ? emp.name.charAt(0).toUpperCase() : "E"
+            
+            .profile-title
+              h2(style="margin-bottom: 5px; color: #111827; font-size: 1.6rem;")= emp.name || "Chưa đặt tên"
+              span.badge(style="background: rgba(99, 102, 241, 0.1); color: var(--primary); padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;")= emp.role || "Chưa cập nhật chức vụ"
+          // Hiển thị đầy đủ tất cả các thông tin đầu vào tương tự form thêm nhân viên
+          .info-grid
+            .info-group
+              .info-label Mã nhân viên
+              .info-value= emp.employeeCode || "Chưa cập nhật"
+            
+            .info-group
+              .info-label Họ và tên
+              .info-value= emp.name || "Chưa cập nhật"
+            
+            .info-group
+              .info-label Chức vụ / Vị trí
+              .info-value= emp.role || "Chưa cập nhật"
+            
+            .info-group
+              .info-label Phòng ban
+              .info-value= emp.department || "Chưa cập nhật"
+            
+            .info-group
+              .info-label Số điện thoại
+              .info-value= emp.phone || "Chưa cập nhật"
+            
+            .info-group
+              .info-label Email liên hệ
+              .info-value= emp.email || "Chưa cập nhật"
+            
+            .info-group
+              .info-label Trình độ đào tạo
+              .info-value= emp.educationLevel || "Chưa cập nhật"
+            
+            .info-group
+              .info-label Bằng cấp chuyên môn
+              .info-value= emp.degree || "Chưa cập nhật"
+
+          // Các nút hành động phía dưới
+          .form-actions(style="margin-top: 30px; display: flex; gap: 15px;")
+            a.btn-cancel(href="/employees" style="flex: none; padding: 12px 25px; text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px;") 
+              i.fas.fa-arrow-left(style="margin-right: 8px;")
+              | Quay lại danh sách
+              
+            if user.role === 'admin'
+              a.btn-save(href=`/employees/edit/${emp._id}` style="flex: none; padding: 12px 25px; text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center; background: var(--secondary) !important; border-radius: 10px;")
+                i.fas.fa-edit(style="margin-right: 8px;")
+                | Chỉnh sửa thông tin
+
+    script.
+      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
+        item.addEventListener('click', function(e) {
+          e.preventDefault();
+          const menuGroup = this.closest('.menu-group');
+          const submenu = menuGroup.querySelector('.submenu');
+          const toggleIcon = this.querySelector('.toggle-icon');
+          
+          document.querySelectorAll('.submenu').forEach(sub => {
+            if (sub !== submenu) {
+              sub.classList.remove('show');
+              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
+              if(icon) icon.classList.remove('rotate');
+            }
+          });
+
+          submenu.classList.toggle('show');
+          if (toggleIcon) toggleIcon.classList.toggle('rotate');
+        });
+      });

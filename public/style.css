@@ -547,3 +547,47 @@ tr:hover {
     padding: 16px;
   }
 }
+
+/* Tùy chỉnh các nút trong khu vực tìm kiếm */
+.search-controls {
+    display: flex; 
+    gap: 12px; 
+    align-items: flex-end;
+}
+
+.btn-action {
+    height: 44px;
+    padding: 0 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: none;
+    font-size: 14px;
+    text-decoration: none;
+}
+
+/* Nút tìm kiếm (Màu xanh chủ đạo) */
+.btn-search {
+    background-color: var(--primary); /* Hoặc màu xanh tùy chọn */
+    color: white;
+}
+.btn-search:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+/* Nút xóa bộ lọc (Màu xám) */
+.btn-clear {
+    background-color: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+.btn-clear:hover {
+    background-color: #e5e7eb;
+    color: #111827;
+}

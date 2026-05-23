@@ -121,15 +121,16 @@ html
                   label(style="font-size: 0.85rem; font-weight: bold; color: #4b5563;") Chọn tháng lương
                   input(type="month" name="month" value=currentMonth style="margin-top: 5px;")
                 div(style="flex: 2;")
-                  // [CẬP NHẬT] Thay đổi tiêu đề nhãn và placeholder gợi ý nhập mã tự quy định
                   label(style="font-size: 0.85rem; font-weight: bold; color: #4b5563;") Nhập Mã Nhân Viên
                   input(type="text" name="employeeId" value=searchEmpId placeholder="Nhập mã nhân viên tự quy định (Ví dụ: NV001, NV002...)" style="margin-top: 5px;")
                 div(style="display: flex; align-items: flex-end; gap: 10px;")
-                  button.btn-add(type="submit" style="margin: 0; padding: 12px 25px; height: 48px; white-space: nowrap;")
+                  button.btn-add(type="submit" style="margin: 0; padding: 0 25px; height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; box-sizing: border-box; font-weight: 500; border-radius: 6px;")
                     i.fas.fa-filter
                     | Tìm kiếm
                   if searchEmpId
-                    a.btn-cancel(href="/salary" style="margin: 0; display: flex; align-items: center; justify-content: center; height: 48px; padding: 0 20px;") Xóa bộ lọc
+                    a.btn-cancel(href="/salary" style="margin: 0; padding: 0 20px; height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; box-sizing: border-box; font-weight: 500; border-radius: 6px; text-decoration: none;")
+                      i.fas.fa-undo
+                      | Xóa
 
           // Hiển thị thông báo lỗi nếu không tìm thấy mã
           if errorMsg
@@ -144,7 +145,6 @@ html
                   i.fas.fa-id-card
                 .stat-info
                   span Nhân sự được tìm thấy
-                  // [CẬP NHẬT] Hiển thị mã nhân viên tự tạo bên cạnh họ tên nhân sự
                   h2(style="font-size: 1.25rem; margin-top: 5px;") #{searchedEmployee.name} [#{searchedEmployee.employeeCode || searchedEmployee.code || searchedEmployee.maNV || 'Chưa xếp mã'}]
                   p(style="font-size: 0.85rem; color:#6b7280; margin-top:2px;") Chức vụ: #{searchedEmployee.role} | Phòng ban: #{searchedEmployee.department}
                 div(style="margin-left: auto;")

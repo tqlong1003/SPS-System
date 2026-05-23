@@ -50,9 +50,8 @@ html
               span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
             i.fas.fa-chevron-down.toggle-icon.rotate
           .submenu.show
-            a.submenu-item.active(href="/salary") Bảng tính lương
-            if user.role === 'admin'
-              a.submenu-item(href="/salary") Tính lương
+            a.submenu-item.active(href="/salary") Tính lương
+            a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
 
         // --- QUẢN LÝ CÔNG TÁC ---
         .menu-group
@@ -94,7 +93,7 @@ html
       header.topbar
         .search-bar
           i.fas.fa-search
-          input(type="text" placeholder="Tìm kiếm phiếu lương...")
+          input(type="text" placeholder="Tìm kiếm nhanh...")
         .user-info
           span.welcome Xin chào, 
             strong #{user.username}
@@ -103,74 +102,95 @@ html
       .content-wrapper
         .welcome-banner
           if user.role === 'admin'
-            h1 💰 Bảng lương tháng #{currentMonth}
-            p Theo dõi và quản lý thu nhập của nhân viên hệ thống
+            h1 💰 Quản lý &amp; Tra cứu tính lương
+            p Nhập mã định danh nhân viên tự nhập (ví dụ: NV001) để tiến hành thực hiện chức năng tính lương.
           else
             h1 💰 Lịch sử lương của bạn
-            p Theo dõi toàn bộ lịch sử nhận lương cá nhân
+            p Tra cứu toàn bộ thông tin lịch sử nhận lương cá nhân trực tuyến.
 
-        // ================= ADMIN FILTER =================
+        // ================= KHU VỰC TRA CỨU ĐỦ ĐIỀU KIỆN (ADMIN) =================
         if user.role === 'admin'
-          .stats-grid(style="margin-bottom: 20px;")
-            .stat-card
-              h3 Quản lý tính lương
-              form(method="GET" action="/salary" style="display: flex; gap: 10px; margin-top: 10px;")
-                input(type="month" name="month" value=currentMonth)
-                button.btn-edit(type="submit" style="margin: 0; padding: 5px 15px;") Lọc
+          .stats-grid(style="margin-bottom: 25px;")
+            .stat-card(style="width: 100%; display: block; padding: 25px;")
+              h3(style="margin-bottom: 15px; color: var(--primary);") 
+                i.fas.fa-search-dollar(style="margin-right: 8px;")
+                | Tra cứu nhân viên theo mã nhân viên
+              
+              form(method="GET" action="/salary" style="display: flex; gap: 15px; max-width: 100%; padding: 0; background: transparent; box-shadow: none; border: none; margin: 0;")
+                div(style="flex: 1;")
+                  label(style="font-size: 0.85rem; font-weight: bold; color: #4b5563;") Chọn tháng lương
+                  input(type="month" name="month" value=currentMonth style="margin-top: 5px;")
+                div(style="flex: 2;")
+                  // [CẬP NHẬT] Thay đổi tiêu đề nhãn và placeholder gợi ý nhập mã tự quy định
+                  label(style="font-size: 0.85rem; font-weight: bold; color: #4b5563;") Nhập Mã Nhân Viên
+                  input(type="text" name="employeeId" value=searchEmpId placeholder="Nhập mã nhân viên tự quy định (Ví dụ: NV001, NV002...)" style="margin-top: 5px;")
+                div(style="display: flex; align-items: flex-end; gap: 10px;")
+                  button.btn-add(type="submit" style="margin: 0; padding: 12px 25px; height: 48px; white-space: nowrap;")
+                    i.fas.fa-filter
+                    | Tìm kiếm
+                  if searchEmpId
+                    a.btn-cancel(href="/salary" style="margin: 0; display: flex; align-items: center; justify-content: center; height: 48px; padding: 0 20px;") Xóa bộ lọc
 
-          .table-container(style="margin-bottom: 20px;")
-            table
-              thead
-                tr
-                  th Nhân viên
-                  th Hành động
-              tbody
-                if employees && employees.length > 0
-                  each emp in employees
-                    tr
-                      td= emp.name
-                      td
-                        a.btn-edit(href=`/salary/manage/${emp._id}`)
-                          i.fas.fa-calculator
-                          |  Tính lương
-                else
-                  tr
-                    td(colspan="2", style="text-align: center;") Không tìm thấy nhân sự để tính lương
+          // Hiển thị thông báo lỗi nếu không tìm thấy mã
+          if errorMsg
+            div(style="background-color: #fee2e2; border-left: 4px solid #ef4444; color: #b91c1c; padding: 15px; border-radius: 8px; margin-bottom: 25px; font-weight: 500;")
+              |= errorMsg
 
-        // ================= CHI TIẾT LƯƠNG TỪNG THÁNG =================
-        h2(style="margin: 20px 0;")
+          // Nếu tìm kiếm thành công theo mã tự nhập, hiển thị thông tin khớp được
+          if searchedEmployee
+            .stats-grid(style="margin-bottom: 25px;")
+              .stat-card
+                .stat-icon.blue(style="background: #6366f1;")
+                  i.fas.fa-id-card
+                .stat-info
+                  span Nhân sự được tìm thấy
+                  // [CẬP NHẬT] Hiển thị mã nhân viên tự tạo bên cạnh họ tên nhân sự
+                  h2(style="font-size: 1.25rem; margin-top: 5px;") #{searchedEmployee.name} [#{searchedEmployee.employeeCode || searchedEmployee.code || searchedEmployee.maNV || 'Chưa xếp mã'}]
+                  p(style="font-size: 0.85rem; color:#6b7280; margin-top:2px;") Chức vụ: #{searchedEmployee.role} | Phòng ban: #{searchedEmployee.department}
+                div(style="margin-left: auto;")
+                  a.btn-edit(href=`/salary/manage/${searchedEmployee._id}` style="padding: 10px 20px; display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; background: #10b981; text-decoration: none;")
+                    i.fas.fa-calculator
+                    | Thực hiện tính toán lương
+
+        // ================= CHI TIẾT BẢNG LƯƠNG HIỂN THỊ =================
+        h2(style="margin: 20px 0; font-size: 1.4rem; display: flex; align-items: center; gap: 10px;")
           if user.role === 'admin'
-            | Chi tiết lương tháng #{currentMonth}
+            i.fas.fa-list-alt(style="color: var(--primary);")
+            | Kết quả bảng tính lương tháng #{currentMonth}
           else
-            | Lịch sử lương các tháng
+            i.fas.fa-history(style="color: var(--primary);")
+            | Toàn bộ lịch sử lương cá nhân
 
         .table-container
           table
             thead
               tr
                 th Tháng
-                th Nhân viên
-                th Lương cơ bản
-                th Thưởng/Phụ cấp
+                th Tên nhân viên
+                th Lương cứng (VND)
+                th Thưởng &amp; Phụ cấp
                 th Tạm ứng
-                th Thực nhận
+                th Thực nhận thực tế
             tbody
               if salaries && salaries.length > 0
                 each s in salaries
                   tr
                     td= s.month
                     td(style="font-weight: bold;")= s.employeeName
-                    td= s.baseSalary.toLocaleString() + 'đ'
-                    td= (s.bonus + s.allowance + s.raise).toLocaleString() + 'đ'
-                    td(style="color: #e74c3c;")= '-' + s.advance.toLocaleString() + 'đ'
-                    td(style="font-weight: bold; color: #2ecc71;")= s.finalSalary.toLocaleString() + 'đ'
+                    td= s.baseSalary.toLocaleString() + ' đ'
+                    td= (s.bonus + s.allowance + s.raise).toLocaleString() + ' đ'
+                    td(style="color: var(--danger); font-weight: 500;")= '-' + s.advance.toLocaleString() + ' đ'
+                    td(style="font-weight: bold; color: var(--success);")= s.finalSalary.toLocaleString() + ' đ'
               else
                 tr
-                  td(colspan="6" style="text-align: center; padding: 30px;")
+                  td(colspan="6" style="text-align: center; padding: 40px; color: #6b7280; font-style: italic;")
                     if user.role === 'admin'
-                      | Chưa có dữ liệu lương cho tháng này.
+                      if searchEmpId
+                        | Nhân viên này chưa được khởi tạo cấu trúc tính lương trong tháng #{currentMonth}.
+                      else
+                        | Không có dữ liệu tính toán lương tổng hợp nào cho tháng này.
                     else
-                      | Bạn chưa có lịch sử lương nào.
+                      | Hệ thống chưa cập nhật dữ liệu lịch sử phiếu lương của bạn.
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {

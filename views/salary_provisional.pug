@@ -1,0 +1,191 @@
+doctype html
+html
+  head
+    title Lương tạm tính - HRM System
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    nav.sidebar
+      .sidebar-header
+        i.fas.fa-bolt
+        span SPS System
+      
+      .sidebar-menu
+        // --- TỔNG QUAN ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-th-large
+              span Tổng quan
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="/dashboard") Thống kê
+            a.submenu-item(href="/employees") Danh sách nhân viên
+            a.submenu-item(href="#") Danh sách tài khoản
+
+        // --- NHÂN VIÊN ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-users
+              span Nhân viên
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="/departments") Phòng ban
+            a.submenu-item(href="/positions") Chức vụ
+            a.submenu-item(href="#") Trình độ
+            a.submenu-item(href="#") Chuyên môn
+            a.submenu-item(href="#") Bằng cấp
+            a.submenu-item(href="/attendance") Chấm công
+            a.submenu-item(href="/contracts") Hợp đồng
+            if user.role === 'admin'
+              a.submenu-item(href="/employees/add") Thêm mới nhân viên
+              a.submenu-item(href="/employees") Danh sách nhân viên
+
+        // --- QUẢN LÝ LƯƠNG ---
+        .menu-group
+          a.menu-item.has-submenu.active(href="#")
+            span
+              i.fas.fa-file-invoice-dollar
+              span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
+            i.fas.fa-chevron-down.toggle-icon.rotate
+          .submenu.show
+            a.submenu-item.active(href="/salary") Tính lương
+            a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
+
+        // --- QUẢN LÝ CÔNG TÁC ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-plane-departure
+              span Quản lý công tác
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Danh sách công tác
+
+        // --- KHEN THƯỞNG - KỶ LUẬT ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-award
+              span Khen thưởng - Kỷ luật
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Khen thưởng
+            a.submenu-item(href="#") Kỷ luật
+
+        // --- TÀI KHOẢN ---
+        .menu-group
+          a.menu-item.has-submenu(href="#")
+            span
+              i.fas.fa-user-cog
+              span Tài khoản
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="#") Thông tin tài khoản
+            a.submenu-item(href="#") Danh sách tài khoản
+            if user.role === 'admin'
+              a.submenu-item(href="/register") Tạo tài khoản
+            a.submenu-item(href="#") Đổi mật khẩu
+            a.submenu-item(href="/logout") Đăng xuất
+              
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm tài liệu...")
+        .user-info
+          span.welcome Xin chào, 
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .content-wrapper
+        .welcome-banner
+          h1 📊 Duyệt Danh Sách Lương Tạm Tính
+          p Vui lòng rà soát kỹ các chỉ số phụ cấp, thưởng và tạm ứng trước khi tiến hành phê duyệt chính thức.
+
+        // Khối bộ lọc tháng và Duyệt toàn bộ tổng thể
+        .stats-grid(style="margin-bottom: 25px; grid-template-columns: 1fr;")
+          .stat-card(style="display: flex; align-items: center; justify-content: space-between; padding: 20px; flex-wrap: wrap; gap: 15px;")
+            div
+              h3(style="color: var(--primary); margin-bottom: 5px;") Chọn tháng đối soát &amp; Chốt dữ liệu
+              p(style="font-size: 0.9rem; color: #6b7280;") Đang hiển thị danh sách chờ phê duyệt của tháng: <strong>#{currentMonth}</strong>
+            
+            div(style="display: flex; gap: 10px; align-items: center;")
+              // Form thay đổi tháng xem dữ liệu
+              form(method="GET" action="/salary/provisional" style="margin:0; padding:0; background:transparent; box-shadow:none; border:none; display:flex; gap:5px;")
+                input(type="month" name="month" value=currentMonth style="padding: 8px; border-radius: 6px; border: 1px solid #ccc;")
+                button(type="submit" style="padding: 8px 12px; background: #64748b; color:white; border:none; border-radius:6px; cursor:pointer;") Lọc
+              
+              if provisionalSalaries && provisionalSalaries.length > 0
+                // Form Duyệt tất cả bản ghi pending của tháng
+                form(method="POST" action="/salary/provisional/approve-all" style="margin: 0; padding: 0; background: transparent; border: none; box-shadow: none;")
+                  input(type="hidden" name="month" value=currentMonth)
+                  button(type="submit" style="background: var(--success); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="return confirm('Bạn có chắc chắn muốn duyệt TOÀN BỘ danh sách lương của tháng này không?')")
+                    i.fas.fa-check-double(style="margin-right: 6px;")
+                    | Duyệt Toàn Bộ
+
+        .table-container
+          table
+            thead
+              tr
+                th Mã NV
+                th Tên nhân viên
+                th Bộ phận
+                th Lương cơ bản
+                th Thưởng / Phụ cấp
+                th Tạm ứng
+                th Thực nhận dự kiến
+                if user.role === 'admin'
+                  th(style="text-align: center;") Thao tác xử lý
+            tbody
+              if provisionalSalaries && provisionalSalaries.length > 0
+                each p in provisionalSalaries
+                  tr
+                    td(style="font-weight: 500; color: var(--primary);")= p.employeeCode
+                    td(style="font-weight: bold;")= p.employeeName
+                    td
+                      span(style="font-size:0.85rem; background:#e2e8f0; padding:3px 8px; border-radius:4px; margin-right:5px; color:#334155;")= p.department
+                      span(style="font-size:0.85rem; color:#64748b;")= p.role
+                    td= p.baseSalary.toLocaleString() + ' đ'
+                    td(style="color: var(--success);")= `+ ${(p.bonus + p.allowance + p.raise).toLocaleString()} đ`
+                    td(style="color: var(--danger);")= `- ${p.advance.toLocaleString()} đ`
+                    td(style="font-weight: bold; color: #1e1b4b;")= p.finalSalary.toLocaleString() + ' đ'
+                    if user.role === 'admin'
+                      td(style="text-align: center;")
+                        div(style="display: flex; justify-content: center; gap: 8px; align-items: center;")
+                          // Nút duyệt đơn lẻ từng dòng
+                          form(method="POST" action=`/salary/provisional/approve/${p._id}` style="margin:0; padding:0; background:transparent; box-shadow:none; border:none; width:auto;")
+                            button(type="submit" style="background: var(--success); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem;" onclick="return confirm('Phê duyệt phiếu lương cho nhân viên này?')")
+                              i.fas.fa-check(style="margin-right: 4px;")
+                              | Duyệt
+                          
+                          // Nút điều chỉnh quay ngược lại màn hình tính toán lương ban đầu
+                          a.btn-edit(href=`/salary/manage/${p.employeeId}` style="font-size: 0.85rem; padding: 6px 12px; background: #a855f7; border-radius: 4px; text-decoration: none; color: white;")
+                            i.fas.fa-edit(style="margin-right: 4px;")
+                            | Sửa tính toán
+              else
+                tr
+                  td(colspan="8" style="text-align: center; padding: 40px; color: #6b7280; font-style: italic;") 
+                    | 🎉 Tuyệt vời! Hiện tại không có hồ sơ lương nào đang chờ phê duyệt trong tháng này.
+
+    script.
+      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
+        item.addEventListener('click', function(e) {
+          e.preventDefault();
+          const menuGroup = this.closest('.menu-group');
+          const submenu = menuGroup.querySelector('.submenu');
+          const toggleIcon = this.querySelector('.toggle-icon');
+          
+          document.querySelectorAll('.submenu').forEach(sub => {
+            if (sub !== submenu) {
+              sub.classList.remove('show');
+              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
+              if(icon) icon.classList.remove('rotate');
+            }
+          });
+
+          submenu.classList.toggle('show');
+          toggleIcon.classList.toggle('rotate');
+        });
+      });

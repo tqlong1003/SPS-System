@@ -51,9 +51,9 @@ html
               span Quản lý lương
             i.fas.fa-chevron-down.toggle-icon
           .submenu
-            a.submenu-item(href="/salary") Bảng tính lương
             if user.role === 'admin'
               a.submenu-item(href="/salary") Tính lương
+              a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
 
         // --- QUẢN LÝ CÔNG TÁC ---
         .menu-group

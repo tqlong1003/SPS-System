@@ -62,9 +62,9 @@ html
               span Quản lý lương
             i.fas.fa-chevron-down.toggle-icon
           .submenu
-            a.submenu-item(href="/salary") Bảng tính lương
             if user.role === 'admin'
               a.submenu-item(href="/salary") Tính lương
+              a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
 
         // --- QUẢN LÝ CÔNG TÁC ---
         .menu-group
@@ -158,16 +158,20 @@ html
               .info-label Bằng cấp chuyên môn
               .info-value= emp.degree || "Chưa cập nhật"
 
+            .info-group
+              .info-label Ngày vào làm
+              .info-value= emp.startDate ? new Date(emp.startDate).toLocaleDateString('vi-VN') : "Chưa cập nhật"
+            
+            .info-group
+              .info-label Lương cứng (VNĐ)
+              .info-value= emp.basicSalary ? emp.basicSalary.toLocaleString('vi-VN') + " VNĐ" : "Chưa cập nhật"
+
           // Các nút hành động phía dưới
           .form-actions(style="margin-top: 30px; display: flex; gap: 15px;")
             a.btn-cancel(href="/employees" style="flex: none; padding: 12px 25px; text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px;") 
               i.fas.fa-arrow-left(style="margin-right: 8px;")
               | Quay lại danh sách
               
-            if user.role === 'admin'
-              a.btn-save(href=`/employees/edit/${emp._id}` style="flex: none; padding: 12px 25px; text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center; background: var(--secondary) !important; border-radius: 10px;")
-                i.fas.fa-edit(style="margin-right: 8px;")
-                | Chỉnh sửa thông tin
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {

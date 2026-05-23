@@ -55,9 +55,9 @@ html
               span Quản lý lương
             i.fas.fa-chevron-down.toggle-icon
           .submenu
-            a.submenu-item(href="/salary") Bảng tính lương
             if user.role === 'admin'
               a.submenu-item(href="/salary") Tính lương
+              a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
 
         // --- QUẢN LÝ CÔNG TÁC ---
         .menu-group
@@ -200,7 +200,7 @@ html
             h3(style="margin: 25px 0 15px 0; color: var(--primary); border-bottom: 1px solid #eee; padding-bottom: 5px;") 
               i.fas.fa-briefcase(style="margin-right: 8px;") 
               | Vị trí công tác & Trình độ học vấn
-
+            
             .form-row
               .form-group
                 label Phòng ban
@@ -208,6 +208,14 @@ html
               .form-group
                 label Chức vụ
                 input(type="text" name="role" placeholder="Ví dụ: Developer, Trưởng phòng...")
+
+            .form-row
+              .form-group
+                label Ngày vào làm
+                input(type="date" name="startDate")
+              .form-group
+                label Lương cứng (VNĐ)
+                input(type="number" name="basicSalary" placeholder="Ví dụ: 10000000")
 
             .form-row
               .form-group
@@ -220,23 +228,15 @@ html
                 label Trạng thái làm việc
                 select(name="status")
                   option(value="Đang làm việc") Đang làm việc
-                  option(value="Đang thử việc") Đang thử việc
+                  option(value="Thử việc") Thử việc
                   option(value="Đã nghỉ việc") Đã nghỉ việc
-                  option(value="Tạm hoãn") Tạm hoãn
 
-            .form-row
-              .form-group
-                label Trình độ đào tạo
-                input(type="text" name="educationLevel" placeholder="Ví dụ: Đại học, Cao đẳng, Thạc sĩ...")
-              .form-group
-                label Bằng cấp chuyên môn
-                input(type="text" name="degree" placeholder="Ví dụ: Kỹ sư CNTT, Cử nhân Kế toán...")
-
-            .form-actions
+            //- Phần sửa đổi nằm ở đây: Thụt lề chuẩn chỉnh cho khối nút bấm hành động
+            .form-actions(style="margin-top: 30px; display: flex; gap: 15px; justify-content: flex-end;")
               button.btn-save(type="submit") 
                 i.fas.fa-save(style="margin-right: 8px;")
                 | Lưu hồ sơ nhân viên
-              a.btn-cancel(href="/employees") 
+              a.btn-cancel(href="/employees" class="btn" style="text-decoration: none;") 
                 i.fas.fa-times(style="margin-right: 8px;")
                 | Hủy bỏ
 

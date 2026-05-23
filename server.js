@@ -223,6 +223,9 @@ fastify.get('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, 
 fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
   try {
     const data = await req.file()
+    if (!data) {
+      return reply.status(400).send('❌ Không nhận được dữ liệu form gửi lên!')
+    }
     
     // Lấy thông tin nhân viên cũ để giữ lại ảnh cũ nếu user không tải ảnh mới
     const oldEmp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
@@ -249,22 +252,31 @@ fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req,
       avatarPath = `/public/uploads/${filename}`
     }
 
-    // Đọc các trường dữ liệu text từ form truyền lên bao gồm cả trường email mới bổ sung
+    // Khởi tạo object chứa dữ liệu được cập nhật sạch sẽ
     const updatedEmployeeData = {}
+    
+    // Duyệt và chuẩn hóa dữ liệu từ các trường text của form gửi lên
     for (const key in data.fields) {
-      updatedEmployeeData[key] = data.fields[key].value
+      const fieldValue = data.fields[key].value
+      
+      // Ép kiểu dữ liệu số cho lương cứng để phục vụ tính toán tự động sau này
+      if (key === 'basicSalary') {
+        updatedEmployeeData[key] = Number(fieldValue || 0)
+      } else {
+        updatedEmployeeData[key] = fieldValue
+      }
     }
 
     // Gán đường dẫn ảnh đại diện (giữ cũ hoặc dùng cái mới vừa upload)
     updatedEmployeeData.avatar = avatarPath
 
-    // Cập nhật vào Cơ sở dữ liệu MongoDB
+    // Tiến hành cập nhật vào Cơ sở dữ liệu MongoDB
     await fastify.mongo.db.collection('employees').updateOne(
       { _id: new ObjectId(req.params.id) },
       { $set: updatedEmployeeData }
     )
     
-    reply.redirect('/employees')
+    return reply.redirect('/employees')
 
   } catch (err) {
     fastify.log.error(err)
@@ -357,16 +369,46 @@ fastify.get('/positions/delete/:id', { preHandler: [auth, isAdmin] }, async (req
   reply.redirect('/positions')
 })
 
-// ================= HỆ THỐNG LƯƠNG =================
+// ================= HỆ THỐNG LƯƠNG (ĐÃ CẬP NHẬT TÌM THEO MÃ TỰ NHẬP VÀ ROUTE TÍNH LƯƠNG) =================
 fastify.get('/salary', { preHandler: [auth] }, async (req, reply) => { 
   const month = req.query.month || new Date().toISOString().slice(0, 7)
-  let salaries
-  let employees = []
+  const searchEmpId = req.query.employeeId ? req.query.employeeId.trim() : ''
+  
+  let salaries = []
+  let searchedEmployee = null
+  let errorMsg = null
 
   if (req.user.role === 'admin') {
-    salaries = await fastify.mongo.db.collection('salaries').find({ month: month }).toArray()
-    employees = await fastify.mongo.db.collection('employees').find().toArray()
+    if (searchEmpId) {
+      try {
+        // TÌM KIẾM THEO MÃ NHÂN VIÊN (Ví dụ trường trong DB tên là employeeCode hoặc code)
+        searchedEmployee = await fastify.mongo.db.collection('employees').findOne({ 
+          $or: [
+            { employeeCode: searchEmpId },
+            { code: searchEmpId },
+            { maNV: searchEmpId } 
+          ]
+        })
+        
+        if (searchedEmployee) {
+          // Khi đã tìm thấy nhân viên bằng Mã tự nhập, lấy lương dựa trên _id hệ thống của họ
+          salaries = await fastify.mongo.db.collection('salaries').find({ 
+            employeeId: searchedEmployee._id,
+            month: month 
+          }).toArray()
+        } else {
+          errorMsg = `❌ Không tìm thấy nhân viên nào có mã: ${searchEmpId}`
+        }
+      } catch (err) {
+        fastify.log.error(err)
+        errorMsg = '❌ Có lỗi xảy ra trong quá trình tìm kiếm!'
+      }
+    } else {
+      // Nếu không nhập mã, hiển thị tất cả bảng lương của tháng đó
+      salaries = await fastify.mongo.db.collection('salaries').find({ month: month }).toArray()
+    }
   } else {
+    // Đối với tài khoản User thường
     salaries = await fastify.mongo.db.collection('salaries')
       .find({ userId: new ObjectId(req.user.id) })
       .sort({ month: -1 })
@@ -375,43 +417,198 @@ fastify.get('/salary', { preHandler: [auth] }, async (req, reply) => {
 
   return reply.view('salary_list.pug', {
     salaries,
-    employees,
+    searchedEmployee,
+    searchEmpId,
+    errorMsg,
     currentMonth: month,
     user: req.user
   })
 })
 
-fastify.get('/salary/manage/:empId', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.empId) });
-  return reply.view('salary_manage.pug', { emp, user: req.user });
-});
-
-fastify.post('/salary/manage/:empId', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const { month, baseSalary, bonus, allowance, advance, raise } = req.body 
-  const totalEarned = parseFloat(baseSalary) + parseFloat(bonus) + parseFloat(allowance) + parseFloat(raise) 
-  const finalSalary = totalEarned - parseFloat(advance)
-
-  const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.empId) })
-
-  await fastify.mongo.db.collection('salaries').updateOne(
-    { userId: emp.userId, month: month }, 
-    {
-      $set: { 
-        employeeName: emp.name, 
-        baseSalary: parseFloat(baseSalary), 
-        bonus: parseFloat(bonus), 
-        allowance: parseFloat(allowance), 
-        advance: parseFloat(advance), 
-        raise: parseFloat(raise), 
-        finalSalary: finalSalary, 
-        employeeId: emp._id 
-      }
-    },
-    { upsert: true }  
-  )
-  reply.redirect('/salary') 
+// [BỔ SUNG] 1. Hiển thị form thiết lập lương cho nhân viên cụ thể khi click nút
+fastify.get('/salary/manage/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
+    if (!emp) {
+      return reply.status(404).send('❌ Không tìm thấy thông tin nhân viên này!')
+    }
+    // Đảm bảo truyền biến emp chứa dữ liệu nhân viên qua file pug
+    return reply.view('salary_manage.pug', { emp, user: req.user })
+  } catch (err) {
+    fastify.log.error(err)
+    return reply.status(500).send('❌ Đã xảy ra lỗi khi tải trang thiết lập lương!')
+  }
 })
 
+// ================= ROUTE 1: LƯU LƯƠNG VÀO DANH SÁCH CHỜ DUYỆT =================
+// Thay đổi logic POST từ lưu chính thức sang lưu tạm tính (Chờ duyệt)
+fastify.post('/salary/manage/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const employeeId = req.params.id;
+    const { month, bonus, allowance, raise, advance } = req.body;
+    
+    // Tìm thông tin gốc của nhân viên để lấy lương cơ bản, phòng ban, mã số...
+    const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(employeeId) });
+    if (!emp) {
+      return reply.status(404).send('❌ Không tìm thấy thông tin nhân viên này!');
+    }
+
+    const baseSalary = Number(emp.basicSalary || 0);
+    const numBonus = Number(bonus || 0);
+    const numAllowance = Number(allowance || 0);
+    const numRaise = Number(raise || 0);
+    const numAdvance = Number(advance || 0);
+
+    // Công thức tính thực nhận dự kiến
+    const finalSalary = (baseSalary + numBonus + numAllowance + numRaise) - numAdvance;
+
+    // Lưu đè hoặc tạo mới vào bảng provisional_salaries kèm trạng thái 'pending'
+    await fastify.mongo.db.collection('provisional_salaries').updateOne(
+      { employeeId: new ObjectId(employeeId), month: month },
+      {
+        $set: {
+          employeeCode: emp.employeeCode || emp.code || emp.maNV || 'Chưa xếp mã',
+          employeeName: emp.name || 'Nhân viên',
+          role: emp.role || 'Chưa cập nhật',
+          department: emp.department || 'Chưa cập nhật',
+          baseSalary,
+          bonus: numBonus,
+          allowance: numAllowance,
+          raise: numRaise,
+          advance: numAdvance,
+          finalSalary,
+          status: 'pending', // 🌟 Trạng thái chờ duyệt
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true }
+    );
+
+    // Chuyển hướng về trang danh sách lương tạm tính để Admin kiểm tra và duyệt
+    reply.redirect('/salary/provisional');
+  } catch (err) {
+    fastify.log.error(err);
+    return reply.status(500).send('❌ Đã xảy ra lỗi khi tạo phiếu lương chờ duyệt!');
+  }
+});
+
+
+// ================= ROUTE 2: HIỂN THỊ DANH SÁCH LƯƠNG CHỜ DUYỆT =================
+fastify.get('/salary/provisional', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const currentMonth = req.query.month || new Date().toISOString().slice(0, 7);
+
+    // Chỉ lấy ra những bản ghi của tháng yêu cầu và đang ở trạng thái chờ duyệt ('pending')
+    const provisionalSalaries = await fastify.mongo.db.collection('provisional_salaries')
+      .find({ month: currentMonth, status: 'pending' }).toArray();
+
+    return reply.view('salary_provisional.pug', {
+      provisionalSalaries,
+      currentMonth,
+      user: req.user
+    });
+  } catch (err) {
+    fastify.log.error(err);
+    return reply.status(500).send('❌ Đã xảy ra lỗi khi tải danh sách lương tạm tính!');
+  }
+});
+
+
+// ================= ROUTE 3: CHỨC NĂNG DUYỆT LẺ TỪNG NHÂN VIÊN =================
+fastify.post('/salary/provisional/approve/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const provisionalId = req.params.id;
+    
+    // Tìm bản ghi tạm tính
+    const provSalary = await fastify.mongo.db.collection('provisional_salaries').findOne({ _id: new ObjectId(provisionalId) });
+    if (!provSalary) {
+      return reply.status(404).send('❌ Không tìm thấy bản ghi lương tạm tính hoặc phiếu đã được duyệt trước đó!');
+    }
+
+    // 1. Ghi đè hoặc tạo mới sang bảng lương chính thức (salaries)
+    await fastify.mongo.db.collection('salaries').updateOne(
+      { employeeId: provSalary.employeeId, month: provSalary.month },
+      {
+        $set: {
+          employeeCode: provSalary.employeeCode,
+          employeeName: provSalary.employeeName,
+          department: provSalary.department,
+          role: provSalary.role,
+          baseSalary: provSalary.baseSalary,
+          bonus: provSalary.bonus,
+          allowance: provSalary.allowance,
+          raise: provSalary.raise,
+          advance: provSalary.advance,
+          finalSalary: provSalary.finalSalary,
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true }
+    );
+
+    // 2. Chuyển trạng thái bản ghi tạm tính thành 'approved' để lưu vết lịch sử (hoặc dùng .deleteOne nếu muốn xóa hẳn)
+    await fastify.mongo.db.collection('provisional_salaries').updateOne(
+      { _id: new ObjectId(provisionalId) },
+      { $set: { status: 'approved', approvedAt: new Date() } }
+    );
+
+    reply.redirect('/salary/provisional?month=' + provSalary.month);
+  } catch (err) {
+    fastify.log.error(err);
+    return reply.status(500).send('❌ Lỗi hệ thống khi duyệt phiếu lương!');
+  }
+});
+
+
+// ================= ROUTE 4: CHỨC NĂNG DUYỆT TOÀN BỘ DANH SÁCH =================
+fastify.post('/salary/provisional/approve-all', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const targetMonth = req.body.month || new Date().toISOString().slice(0, 7);
+    
+    // Lấy toàn bộ danh sách đang 'pending' của tháng đó
+    const pendingList = await fastify.mongo.db.collection('provisional_salaries')
+      .find({ month: targetMonth, status: 'pending' }).toArray();
+
+    if (pendingList.length === 0) {
+      return reply.redirect('/salary/provisional?month=' + targetMonth);
+    }
+
+    // Tiến hành duyệt đồng loạt bằng vòng lặp
+    for (const item of pendingList) {
+      await fastify.mongo.db.collection('salaries').updateOne(
+        { employeeId: item.employeeId, month: targetMonth },
+        {
+          $set: {
+            employeeCode: item.employeeCode,
+            employeeName: item.employeeName,
+            department: item.department,
+            role: item.role,
+            baseSalary: item.baseSalary,
+            bonus: item.bonus,
+            allowance: item.allowance,
+            raise: item.raise,
+            advance: item.advance,
+            finalSalary: item.finalSalary,
+            updatedAt: new Date()
+          }
+        },
+        { upsert: true }
+      );
+    }
+
+    // Cập nhật trạng thái hàng loạt bên bảng tạm
+    await fastify.mongo.db.collection('provisional_salaries').updateMany(
+      { month: targetMonth, status: 'pending' },
+      { $set: { status: 'approved', approvedAt: new Date() } }
+    );
+
+    // Duyệt xong chuyển hẳn sang bảng lương chính thức để xem thành quả
+    reply.redirect('/salary?month=' + targetMonth);
+  } catch (err) {
+    fastify.log.error(err);
+    return reply.status(500).send('❌ Gặp lỗi khi duyệt toàn bộ bảng lương!');
+  }
+});
 
 // ================= QUẢN LÝ HỢP ĐỒNG =================
 fastify.get('/contracts', { preHandler: [auth] }, async (req, reply) => {

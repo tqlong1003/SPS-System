@@ -50,9 +50,9 @@ html
               span #{user.role === 'admin' ? 'Quản lý lương' : 'Phiếu lương'}
             i.fas.fa-chevron-down.toggle-icon.rotate
           .submenu.show
-            a.submenu-item(href="/salary") Bảng tính lương
             if user.role === 'admin'
               a.submenu-item.active(href="/salary") Tính lương
+              a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
 
         // --- QUẢN LÝ CÔNG TÁC ---
         .menu-group
@@ -118,8 +118,8 @@ html
                 input(type="month", name="month", required, value=new Date().toISOString().slice(0, 7))
               
               .form-group
-                label Lương cơ bản (VNĐ)
-                input(type="number", name="baseSalary", placeholder="Ví dụ: 10000000", required)
+                label Lương cứng (VNĐ) (Tự động lấy từ hồ sơ)
+                input(type="number", name="baseSalary", value=(emp.basicSalary || 0), readonly, style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; font-weight: bold;")
               
               .form-group
                 label Thưởng

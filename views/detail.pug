@@ -32,8 +32,9 @@ html
           //- BỎ class .show để submenu ẩn đi lúc ban đầu
           .submenu
             a.submenu-item(href="/dashboard") Thống kê
-            a.submenu-item(href="/employees") Danh sách nhân viên
-            a.submenu-item(href="#") Danh sách tài khoản
+            a.submenu-item(href="/employees") #{user.role === 'admin' ? 'Danh sách nhân viên' : 'Thông tin cá nhân'}
+            if user.role === 'admin'
+              a.submenu-item(href="/accounts") Danh sách tài khoản
 
         // --- NHÂN VIÊN ---
         .menu-group
@@ -43,16 +44,15 @@ html
               span Nhân viên
             i.fas.fa-chevron-down.toggle-icon.rotate
           .submenu.show
-            a.submenu-item(href="/departments") Phòng ban
-            a.submenu-item(href="/positions") Chức vụ
-            a.submenu-item(href="#") Trình độ
-            a.submenu-item(href="#") Chuyên môn
-            a.submenu-item(href="#") Bằng cấp
             a.submenu-item(href="/attendance") Chấm công
             a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
+              a.submenu-item(href="/departments") Phòng ban
+              a.submenu-item(href="/positions") Chức vụ
               a.submenu-item(href="/employees/add") Thêm mới nhân viên
               a.submenu-item(href="/employees") Danh sách nhân viên
+            else
+              a.submenu-item.active(href="/employees") Thông tin cá nhân
 
         // --- QUẢN LÝ LƯƠNG ---
         .menu-group
@@ -65,6 +65,8 @@ html
             if user.role === 'admin'
               a.submenu-item(href="/salary") Tính lương
               a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
+            else
+              a.submenu-item(href="/salary") Phiếu lương của tôi
 
         // --- QUẢN LÝ CÔNG TÁC ---
         .menu-group
@@ -96,8 +98,8 @@ html
             i.fas.fa-chevron-down.toggle-icon
           .submenu
             a.submenu-item(href="#") Thông tin tài khoản
-            a.submenu-item(href="#") Danh sách tài khoản
             if user.role === 'admin'
+              a.submenu-item(href="/accounts") Danh sách tài khoản
               a.submenu-item(href="/register") Tạo tài khoản
             a.submenu-item(href="#") Đổi mật khẩu
             a.submenu-item(href="/logout") Đăng xuất
@@ -151,20 +153,8 @@ html
               .info-value= emp.email || "Chưa cập nhật"
             
             .info-group
-              .info-label Trình độ đào tạo
-              .info-value= emp.educationLevel || "Chưa cập nhật"
-            
-            .info-group
-              .info-label Bằng cấp chuyên môn
-              .info-value= emp.degree || "Chưa cập nhật"
-
-            .info-group
-              .info-label Ngày vào làm
-              .info-value= emp.startDate ? new Date(emp.startDate).toLocaleDateString('vi-VN') : "Chưa cập nhật"
-            
-            .info-group
               .info-label Lương cứng (VNĐ)
-              .info-value= emp.basicSalary ? emp.basicSalary.toLocaleString('vi-VN') + " VNĐ" : "Chưa cập nhật"
+              .info-value= Number(emp.basicSalary) ? Number(emp.basicSalary).toLocaleString('vi-VN') + " VNĐ" : "Chưa cập nhật"
 
           // Các nút hành động phía dưới
           .form-actions(style="margin-top: 30px; display: flex; gap: 15px;")

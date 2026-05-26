@@ -1,7 +1,7 @@
 doctype html
 html
   head
-    title Quản lý hợp đồng - HRM System
+    title Danh sách tài khoản - HRM System
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
   body.dashboard-body
@@ -11,7 +11,6 @@ html
         span SPS System
       
       .sidebar-menu
-        // --- TỔNG QUAN ---
         .menu-group
           a.menu-item.has-submenu(href="#")
             span
@@ -20,29 +19,24 @@ html
             i.fas.fa-chevron-down.toggle-icon
           .submenu
             a.submenu-item(href="/dashboard") Thống kê
-            a.submenu-item(href="/employees") #{user.role === 'admin' ? 'Danh sách nhân viên' : 'Thông tin cá nhân'}
-            if user.role === 'admin'
-              a.submenu-item(href="/accounts") Danh sách tài khoản
+            a.submenu-item(href="/employees") Danh sách nhân viên
+            a.submenu-item.active(href="/accounts") Danh sách tài khoản
 
-        // --- NHÂN VIÊN ---
         .menu-group
-          a.menu-item.has-submenu.active(href="#")
+          a.menu-item.has-submenu(href="#")
             span
               i.fas.fa-users
               span Nhân viên
-            i.fas.fa-chevron-down.toggle-icon.rotate
-          .submenu.show
+            i.fas.fa-chevron-down.toggle-icon
+          .submenu
+            a.submenu-item(href="/departments") Phòng ban
+            a.submenu-item(href="/positions") Chức vụ
             a.submenu-item(href="/attendance") Chấm công
-            a.submenu-item.active(href="/contracts") Hợp đồng
+            a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
-              a.submenu-item(href="/departments") Phòng ban
-              a.submenu-item(href="/positions") Chức vụ
               a.submenu-item(href="/employees/add") Thêm mới nhân viên
               a.submenu-item(href="/employees") Danh sách nhân viên
-            else
-              a.submenu-item(href="/employees") Thông tin cá nhân
 
-        // --- QUẢN LÝ LƯƠNG ---
         .menu-group
           a.menu-item.has-submenu(href="#")
             span
@@ -53,10 +47,7 @@ html
             if user.role === 'admin'
               a.submenu-item(href="/salary") Tính lương
               a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
-            else
-              a.submenu-item(href="/salary") Phiếu lương của tôi
 
-        // --- QUẢN LÝ CÔNG TÁC ---
         .menu-group
           a.menu-item.has-submenu(href="#")
             span
@@ -66,7 +57,6 @@ html
           .submenu
             a.submenu-item(href="#") Danh sách công tác
 
-        // --- KHEN THƯỞNG - KỶ LUẬT ---
         .menu-group
           a.menu-item.has-submenu(href="#")
             span
@@ -77,17 +67,16 @@ html
             a.submenu-item(href="#") Khen thưởng
             a.submenu-item(href="#") Kỷ luật
 
-        // --- TÀI KHOẢN ---
         .menu-group
-          a.menu-item.has-submenu(href="#")
+          a.menu-item.has-submenu.active(href="#")
             span
               i.fas.fa-user-cog
               span Tài khoản
-            i.fas.fa-chevron-down.toggle-icon
-          .submenu
+            i.fas.fa-chevron-down.toggle-icon.rotate
+          .submenu.show
             a.submenu-item(href="#") Thông tin tài khoản
+            a.submenu-item.active(href="/accounts") Danh sách tài khoản
             if user.role === 'admin'
-              a.submenu-item(href="/accounts") Danh sách tài khoản
               a.submenu-item(href="/register") Tạo tài khoản
             a.submenu-item(href="#") Đổi mật khẩu
             a.submenu-item(href="/logout") Đăng xuất
@@ -96,7 +85,7 @@ html
       header.topbar
         .search-bar
           i.fas.fa-search
-          input(type="text" placeholder="Tìm kiếm hợp đồng...")
+          input(type="text" placeholder="Tìm tài khoản...")
         .user-info
           span.welcome Xin chào, 
             strong #{user.username}
@@ -104,37 +93,28 @@ html
 
       .content-wrapper
         .welcome-banner
-          h1 📄 Quản lý hợp đồng
-          p= user.role === 'admin' ? 'Danh sách thông tin và thời hạn các hợp đồng lao động' : 'Thông tin hợp đồng lao động của bạn'
+          h1 Danh sách tài khoản
+          p Tách riêng danh sách đăng nhập khỏi danh sách hồ sơ nhân viên.
 
-        if user.role === 'admin'
-          a.btn(href="/contracts/add" style="display: inline-block; margin-bottom: 15px; text-decoration: none;") ➕ Thêm hợp đồng
-        
         .table-container
           table
             thead
               tr
-                th Số hợp đồng
-                th Loại hợp đồng
-                th Ngày ký
-                th Thời hạn
-                if user.role === 'admin'
-                  th Thao tác
+                th Tên đăng nhập
+                th Quyền
+                th Nhân viên liên kết
+                th Trạng thái mật khẩu
             tbody
-              if contracts && contracts.length > 0
-                each c in contracts
+              if accounts && accounts.length > 0
+                each account in accounts
                   tr
-                    td(style="font-weight: bold;")= c.contractNumber
-                    td= c.contractType
-                    td= c.signDate
-                    td= c.duration
-                    if user.role === 'admin'
-                      td
-                        a.btn-edit(href=`/contracts/edit/${c._id}`) Sửa
-                        a.btn-delete(href=`/contracts/delete/${c._id}`, onclick="return confirm('Xác nhận xóa?')", style="margin-left: 5px;") Xóa
+                    td(style="font-weight: bold;")= account.username
+                    td= account.role
+                    td= account.linkedEmployeeName
+                    td= account.passwordStatus
               else
                 tr
-                  td(colspan=user.role === 'admin' ? "5" : "4", style="text-align: center; padding: 20px;") Chưa có hợp đồng nào
+                  td(colspan="4", style="text-align: center; padding: 20px;") Chưa có dữ liệu tài khoản
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {

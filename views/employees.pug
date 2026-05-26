@@ -21,7 +21,7 @@ html
           .submenu
             a.submenu-item(href="/dashboard") Thống kê
             a.submenu-item(href="/employees") Danh sách nhân viên
-            a.submenu-item(href="#") Danh sách tài khoản
+            a.submenu-item(href="/accounts") Danh sách tài khoản
 
         // --- NHÂN VIÊN ---
         .menu-group
@@ -33,9 +33,6 @@ html
           .submenu.show
             a.submenu-item(href="/departments") Phòng ban
             a.submenu-item(href="/positions") Chức vụ
-            a.submenu-item(href="#") Trình độ
-            a.submenu-item(href="#") Chuyên môn
-            a.submenu-item(href="#") Bằng cấp
             a.submenu-item(href="/attendance") Chấm công
             a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
@@ -84,9 +81,9 @@ html
             i.fas.fa-chevron-down.toggle-icon
           .submenu
             a.submenu-item(href="#") Thông tin tài khoản
-            a.submenu-item(href="#") Danh sách tài khoản
+            a.submenu-item(href="/accounts") Danh sách tài khoản
             if user.role === 'admin'
-              a.submenu-item(href="/register") Tạo tài khoản
+              a.submenu-item(href="/register") Cấp tài khoản
             a.submenu-item(href="#") Đổi mật khẩu
             a.submenu-item(href="/logout") Đăng xuất
 

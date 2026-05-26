@@ -33,9 +33,6 @@ html
           .submenu
             a.submenu-item(href="/departments") Phòng ban
             a.submenu-item(href="/positions") Chức vụ
-            a.submenu-item(href="#") Trình độ
-            a.submenu-item(href="#") Chuyên môn
-            a.submenu-item(href="#") Bằng cấp
             a.submenu-item(href="/attendance") Chấm công
             a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
@@ -129,28 +126,30 @@ html
           table
             thead
               tr
-                th Mã NV
+                th Tháng
                 th Tên nhân viên
-                th Bộ phận
-                th Lương cơ bản
-                th Thưởng / Phụ cấp
+                th Mã nhân viên
+                th Lương cơ bản (VND)
+                th Chức vụ
+                th Số công thực tế
+                th Thưởng &amp; Phụ cấp
                 th Tạm ứng
-                th Thực nhận dự kiến
+                th Thực nhận thực tế
                 if user.role === 'admin'
                   th(style="text-align: center;") Thao tác xử lý
             tbody
               if provisionalSalaries && provisionalSalaries.length > 0
                 each p in provisionalSalaries
                   tr
-                    td(style="font-weight: 500; color: var(--primary);")= p.employeeCode
+                    td= p.month
                     td(style="font-weight: bold;")= p.employeeName
-                    td
-                      span(style="font-size:0.85rem; background:#e2e8f0; padding:3px 8px; border-radius:4px; margin-right:5px; color:#334155;")= p.department
-                      span(style="font-size:0.85rem; color:#64748b;")= p.role
-                    td= p.baseSalary.toLocaleString() + ' đ'
-                    td(style="color: var(--success);")= `+ ${(p.bonus + p.allowance + p.raise).toLocaleString()} đ`
-                    td(style="color: var(--danger);")= `- ${p.advance.toLocaleString()} đ`
-                    td(style="font-weight: bold; color: #1e1b4b;")= p.finalSalary.toLocaleString() + ' đ'
+                    td= p.employeeCode || 'Chưa cập nhật'
+                    td= Number(p.baseSalary || 0).toLocaleString('vi-VN') + ' đ'
+                    td= p.role || 'Chưa cập nhật'
+                    td= p.attendanceDays != null ? p.attendanceDays : 'Chưa cập nhật'
+                    td(style="color: var(--success);")= (Number(p.bonus || 0) + Number(p.allowance || 0) + Number(p.raise || 0)).toLocaleString('vi-VN') + ' đ'
+                    td(style="color: var(--danger);")= '-' + Number(p.advance || 0).toLocaleString('vi-VN') + ' đ'
+                    td(style="font-weight: bold; color: #1e1b4b;")= Number(p.finalSalary || 0).toLocaleString('vi-VN') + ' đ'
                     if user.role === 'admin'
                       td(style="text-align: center;")
                         div(style="display: flex; justify-content: center; gap: 8px; align-items: center;")
@@ -166,7 +165,7 @@ html
                             | Sửa tính toán
               else
                 tr
-                  td(colspan="8" style="text-align: center; padding: 40px; color: #6b7280; font-style: italic;") 
+                  td(colspan=user.role === 'admin' ? '10' : '9' style="text-align: center; padding: 40px; color: #6b7280; font-style: italic;") 
                     | 🎉 Tuyệt vời! Hiện tại không có hồ sơ lương nào đang chờ phê duyệt trong tháng này.
 
     script.

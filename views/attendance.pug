@@ -21,8 +21,9 @@ html
             i.fas.fa-chevron-down.toggle-icon
           .submenu
             a.submenu-item(href="/dashboard") Thống kê
-            a.submenu-item(href="/employees") Danh sách nhân viên
-            a.submenu-item(href="#") Danh sách tài khoản
+            a.submenu-item(href="/employees") #{user.role === 'admin' ? 'Danh sách nhân viên' : 'Thông tin cá nhân'}
+            if user.role === 'admin'
+              a.submenu-item(href="/accounts") Danh sách tài khoản
 
         // --- NHÂN VIÊN ---
         .menu-group
@@ -32,16 +33,15 @@ html
               span Nhân viên
             i.fas.fa-chevron-down.toggle-icon.rotate
           .submenu.show
-            a.submenu-item(href="/departments") Phòng ban
-            a.submenu-item(href="/positions") Chức vụ
-            a.submenu-item(href="#") Trình độ
-            a.submenu-item(href="#") Chuyên môn
-            a.submenu-item(href="#") Bằng cấp
             a.submenu-item.active(href="/attendance") Chấm công
             a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
+              a.submenu-item(href="/departments") Phòng ban
+              a.submenu-item(href="/positions") Chức vụ
               a.submenu-item(href="/employees/add") Thêm mới nhân viên
               a.submenu-item(href="/employees") Danh sách nhân viên
+            else
+              a.submenu-item(href="/employees") Thông tin cá nhân
 
         // --- QUẢN LÝ LƯƠNG ---
         .menu-group
@@ -54,6 +54,8 @@ html
             if user.role === 'admin'
               a.submenu-item(href="/salary") Tính lương
               a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
+            else
+              a.submenu-item(href="/salary") Phiếu lương của tôi
 
         // --- QUẢN LÝ CÔNG TÁC ---
         .menu-group
@@ -85,8 +87,8 @@ html
             i.fas.fa-chevron-down.toggle-icon
           .submenu
             a.submenu-item(href="#") Thông tin tài khoản
-            a.submenu-item(href="#") Danh sách tài khoản
             if user.role === 'admin'
+              a.submenu-item(href="/accounts") Danh sách tài khoản
               a.submenu-item(href="/register") Tạo tài khoản
             a.submenu-item(href="#") Đổi mật khẩu
             a.submenu-item(href="/logout") Đăng xuất
@@ -104,12 +106,95 @@ html
       .content-wrapper
         .welcome-banner
           h1 📅 Quản lý chấm công
-          p Theo dõi tình trạng đi làm và tăng ca của nhân sự
+          p Check-in theo vị trí GPS tại công ty và theo dõi tình trạng đi làm của nhân sự
+
+        if error
+          div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #fee2e2; color: #b91c1c; font-weight: 600;")= error
+
+        if success
+          div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #dcfce7; color: #166534; font-weight: 600;")= success
+
+        if employee
+          .card-form(style="margin-bottom: 20px;")
+            .card-header
+              i.fas.fa-map-marker-alt
+              h2 Check-in tại công ty
+
+            if attendanceSettings.isConfigured
+              p(style="margin-bottom: 12px; color: #475569;")
+                | Vị trí công ty: 
+                strong #{attendanceSettings.companyName}
+                |  | Bán kính hợp lệ: 
+                strong #{attendanceSettings.allowedRadiusMeters} m
+            else
+              p(style="margin-bottom: 12px; color: #b91c1c; font-weight: 600;")
+                | Hệ thống chưa cấu hình tọa độ công ty. Cập nhật COMPANY_LATITUDE và COMPANY_LONGITUDE trong server trước khi check-in.
+
+            if todayAttendance
+              div(style="margin-bottom: 16px; padding: 12px 14px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0;")
+                p(style="margin: 0 0 6px;")
+                  strong Hôm nay: 
+                  | #{todayAttendance.workDate}
+                p(style="margin: 0 0 6px;")
+                  strong Check-in: 
+                  | #{todayAttendance.checkInDisplay}
+                p(style="margin: 0 0 6px;")
+                  strong Check-out: 
+                  | #{todayAttendance.checkOutDisplay}
+                p(style="margin: 0;")
+                  strong Khoảng cách xác thực: 
+                  | #{todayAttendance.distanceDisplay}
+                if todayAttendance.checkInPhoto
+                  p(style="margin: 10px 0 0;")
+                    strong Ảnh check-in:
+                  img(src=todayAttendance.checkInPhoto, alt="Ảnh check-in", style="margin-top: 8px; width: 180px; border-radius: 10px; border: 1px solid #e2e8f0;")
+
+            form#checkinForm(action="/attendance/checkin", method="POST")
+              input(type="hidden", name="latitude", id="latitude")
+              input(type="hidden", name="longitude", id="longitude")
+              input(type="hidden", name="accuracy", id="accuracy")
+              input(type="hidden", name="photoData", id="photoData")
+              .form-group(style="margin-bottom: 12px;")
+                label Ảnh check-in
+                p(style="margin: 6px 0 12px; color: #64748b;") Dùng camera thiết bị để chụp ảnh trước khi gửi chấm công.
+                video#cameraPreview(autoplay playsinline style="width: 100%; max-width: 480px; border-radius: 14px; background: #0f172a; display: none;")
+                img#capturedPreview(alt="Ảnh vừa chụp" style="width: 100%; max-width: 480px; border-radius: 14px; display: none; margin-top: 10px; border: 1px solid #e2e8f0;")
+                canvas#captureCanvas(style="display: none;")
+              .form-actions(style="display: flex; gap: 12px; flex-wrap: wrap;")
+                button.btn-cancel(type="button", id="openCameraButton", disabled=(todayAttendance && todayAttendance.checkInAt))
+                  i.fas.fa-camera
+                  |  Mở camera
+                button.btn-edit(type="button", id="capturePhotoButton", disabled=(todayAttendance && todayAttendance.checkInAt))
+                  i.fas.fa-camera-retro
+                  |  Chụp ảnh
+                button.btn-cancel(type="button", id="retakePhotoButton", style="display: none;", disabled=(todayAttendance && todayAttendance.checkInAt))
+                  i.fas.fa-rotate-left
+                  |  Chụp lại
+                button.btn-save(type="button", id="checkinButton", disabled=(todayAttendance && todayAttendance.checkInAt))
+                  i.fas.fa-location-crosshairs
+                  |  Chụp ảnh và check-in
+
+            if todayAttendance && todayAttendance.checkInAt && !todayAttendance.checkOutAt
+              form(action="/attendance/checkout", method="POST", style="margin-top: 12px;")
+                .form-actions
+                  button.btn-cancel(type="submit")
+                    i.fas.fa-right-from-bracket
+                    |  Check-out
+
+            p#gpsStatus(style="margin-top: 12px; color: #475569; font-weight: 500;")
+              if todayAttendance && todayAttendance.checkInAt
+                | Bạn đã check-in hôm nay. Nếu chưa kết thúc ngày làm việc, có thể bấm check-out.
+              else
+                | Mở camera, chụp ảnh rồi bấm check-in. Hệ thống sẽ gửi kèm GPS hiện tại để xác thực vị trí.
+
+        else
+          div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #fff7ed; color: #9a3412; font-weight: 600;")
+            | Tài khoản này chưa được liên kết với hồ sơ nhân viên, nên chưa thể check-in/check-out tự động.
 
         if user.role === 'admin'
           a.btn(href="/attendance/add" style="display: inline-block; margin-bottom: 15px; text-decoration: none;")
             i.fas.fa-plus
-            |  Thêm chấm công
+            |  Thêm chấm công thủ công
 
         .table-container
           table
@@ -117,7 +202,10 @@ html
               tr
                 th Nhân viên
                 th Ngày
+                th Check-in
+                th Check-out
                 th Trạng thái
+                th Khoảng cách
                 th Tăng ca
                 if user.role === 'admin'
                   th Hành động
@@ -125,8 +213,10 @@ html
               if attendance && attendance.length > 0
                 each record in attendance
                   tr
-                    td= record.employeeId
-                    td= record.date
+                    td= record.employeeName
+                    td= record.workDate
+                    td= record.checkInDisplay
+                    td= record.checkOutDisplay
                     td
                       case record.status
                         when 'present'
@@ -137,6 +227,7 @@ html
                           | Xin nghỉ
                         default
                           = record.status
+                    td= record.distanceDisplay
                     td= record.overtime ? 'Có' : 'Không'
                     if user.role === 'admin'
                       td
@@ -144,7 +235,7 @@ html
                         a.btn-delete(href=`/attendance/delete/${record._id}` style="margin-left: 5px;") Xóa
               else
                 tr
-                  td(colspan=user.role === 'admin' ? "5" : "4", style="text-align: center; padding: 20px;") Chưa có dữ liệu
+                  td(colspan=user.role === 'admin' ? "8" : "7", style="text-align: center; padding: 20px;") Chưa có dữ liệu
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
@@ -166,3 +257,148 @@ html
           toggleIcon.classList.toggle('rotate');
         });
       });
+
+      let cameraStream = null;
+      const checkinButton = document.getElementById('checkinButton');
+      const checkinForm = document.getElementById('checkinForm');
+      const gpsStatus = document.getElementById('gpsStatus');
+      const openCameraButton = document.getElementById('openCameraButton');
+      const capturePhotoButton = document.getElementById('capturePhotoButton');
+      const retakePhotoButton = document.getElementById('retakePhotoButton');
+      const cameraPreview = document.getElementById('cameraPreview');
+      const capturedPreview = document.getElementById('capturedPreview');
+      const captureCanvas = document.getElementById('captureCanvas');
+      const photoData = document.getElementById('photoData');
+      const companyConfigured = !{JSON.stringify(attendanceSettings.isConfigured)};
+
+      async function openCamera() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          if (gpsStatus) {
+            gpsStatus.textContent = 'Trình duyệt này không hỗ trợ camera.';
+          }
+          return;
+        }
+
+        try {
+          cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user' },
+            audio: false
+          });
+
+          if (cameraPreview) {
+            cameraPreview.srcObject = cameraStream;
+            cameraPreview.style.display = 'block';
+          }
+          if (capturedPreview) {
+            capturedPreview.style.display = 'none';
+          }
+          if (retakePhotoButton) {
+            retakePhotoButton.style.display = 'none';
+          }
+          if (gpsStatus) {
+            gpsStatus.textContent = 'Camera đã sẵn sàng. Hãy bấm chụp ảnh.';
+          }
+        } catch (error) {
+          if (gpsStatus) {
+            gpsStatus.textContent = 'Không thể mở camera. Hãy kiểm tra quyền truy cập camera trên trình duyệt.';
+          }
+        }
+      }
+
+      function stopCamera() {
+        if (cameraStream) {
+          cameraStream.getTracks().forEach(track => track.stop());
+          cameraStream = null;
+        }
+      }
+
+      if (checkinButton && checkinForm && gpsStatus) {
+        if (openCameraButton) {
+          openCameraButton.addEventListener('click', () => {
+            openCamera();
+          });
+        }
+
+        if (capturePhotoButton) {
+          capturePhotoButton.addEventListener('click', () => {
+            if (!cameraPreview || !cameraPreview.srcObject) {
+              gpsStatus.textContent = 'Bạn cần mở camera trước khi chụp ảnh.';
+              return;
+            }
+
+            captureCanvas.width = cameraPreview.videoWidth || 640;
+            captureCanvas.height = cameraPreview.videoHeight || 480;
+            const context = captureCanvas.getContext('2d');
+            context.drawImage(cameraPreview, 0, 0, captureCanvas.width, captureCanvas.height);
+
+            const snapshot = captureCanvas.toDataURL('image/jpeg', 0.92);
+            photoData.value = snapshot;
+            capturedPreview.src = snapshot;
+            capturedPreview.style.display = 'block';
+            if (retakePhotoButton) {
+              retakePhotoButton.style.display = 'inline-flex';
+            }
+            gpsStatus.textContent = 'Đã chụp ảnh check-in. Bây giờ bạn có thể bấm check-in.';
+            stopCamera();
+            cameraPreview.style.display = 'none';
+          });
+        }
+
+        if (retakePhotoButton) {
+          retakePhotoButton.addEventListener('click', () => {
+            photoData.value = '';
+            capturedPreview.src = '';
+            capturedPreview.style.display = 'none';
+            openCamera();
+          });
+        }
+
+        checkinButton.addEventListener('click', () => {
+          if (!photoData.value) {
+            gpsStatus.textContent = 'Bạn cần chụp ảnh trước khi check-in.';
+            return;
+          }
+
+          if (!companyConfigured) {
+            gpsStatus.textContent = 'Đã chụp ảnh nhưng hệ thống chưa cấu hình tọa độ công ty, nên chưa thể xác thực GPS để check-in.';
+            return;
+          }
+
+          if (!navigator.geolocation) {
+            gpsStatus.textContent = 'Trình duyệt này không hỗ trợ định vị GPS.';
+            return;
+          }
+
+          gpsStatus.textContent = 'Đang lấy vị trí hiện tại, vui lòng chờ vài giây...';
+          checkinButton.disabled = true;
+
+          navigator.geolocation.getCurrentPosition(
+            position => {
+              document.getElementById('latitude').value = position.coords.latitude;
+              document.getElementById('longitude').value = position.coords.longitude;
+              document.getElementById('accuracy').value = position.coords.accuracy || '';
+              gpsStatus.textContent = 'Đã lấy được GPS, đang gửi check-in...';
+              checkinForm.submit();
+            },
+            error => {
+              const messages = {
+                1: 'Bạn đã từ chối quyền truy cập vị trí.',
+                2: 'Không thể xác định vị trí hiện tại.',
+                3: 'Thiết bị lấy GPS quá lâu, hãy thử lại.'
+              };
+
+              gpsStatus.textContent = messages[error.code] || 'Không thể lấy GPS từ thiết bị.';
+              checkinButton.disabled = false;
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 0
+            }
+          );
+        });
+
+        window.addEventListener('beforeunload', () => {
+          stopCamera();
+        });
+      }

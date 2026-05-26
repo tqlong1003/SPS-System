@@ -23,8 +23,9 @@ html
           //- BỎ class .show để submenu ẩn đi lúc ban đầu
           .submenu
             a.submenu-item(href="/dashboard") Thống kê
-            a.submenu-item(href="/employees") Danh sách nhân viên
-            a.submenu-item(href="#") Danh sách tài khoản
+            a.submenu-item(href="/employees") #{user.role === 'admin' ? 'Danh sách nhân viên' : 'Thông tin cá nhân'}
+            if user.role === 'admin'
+              a.submenu-item(href="/accounts") Danh sách tài khoản
 
         // --- NHÂN VIÊN ---
         .menu-group
@@ -34,16 +35,15 @@ html
               span Nhân viên
             i.fas.fa-chevron-down.toggle-icon
           .submenu
-            a.submenu-item(href="/departments") Phòng ban
-            a.submenu-item(href="/positions") Chức vụ
-            a.submenu-item(href="#") Trình độ
-            a.submenu-item(href="#") Chuyên môn
-            a.submenu-item(href="#") Bằng cấp
             a.submenu-item(href="/attendance") Chấm công
             a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
+              a.submenu-item(href="/departments") Phòng ban
+              a.submenu-item(href="/positions") Chức vụ
               a.submenu-item(href="/employees/add") Thêm mới nhân viên
               a.submenu-item(href="/employees") Danh sách nhân viên
+            else
+              a.submenu-item(href="/employees") Thông tin cá nhân
 
         // --- QUẢN LÝ LƯƠNG ---
         .menu-group
@@ -56,6 +56,8 @@ html
             if user.role === 'admin'
               a.submenu-item(href="/salary") Tính lương
               a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
+            else
+              a.submenu-item(href="/salary") Phiếu lương của tôi
 
         // --- QUẢN LÝ CÔNG TÁC ---
         .menu-group
@@ -87,8 +89,8 @@ html
             i.fas.fa-chevron-down.toggle-icon
           .submenu
             a.submenu-item(href="#") Thông tin tài khoản
-            a.submenu-item(href="#") Danh sách tài khoản
             if user.role === 'admin'
+              a.submenu-item(href="/accounts") Danh sách tài khoản
               a.submenu-item(href="/register") Tạo tài khoản
             a.submenu-item(href="#") Đổi mật khẩu
             a.submenu-item(href="/logout") Đăng xuất
@@ -110,25 +112,46 @@ html
           h1 👋 Chào mừng, #{user.username}
           p Quản lý hệ thống nhân sự một cách hiệu quả và nhanh chóng
 
-        .stats-grid
-          .stat-card
-            .stat-icon.blue
-              i.fas.fa-user-check
-            .stat-info
-              span Nhân viên hiện tại
-              h2 120
-          .stat-card
-            .stat-icon.green
-              i.fas.fa-building
-            .stat-info
-              span Phòng ban
-              h2 8
-          .stat-card
-            .stat-icon.orange
-              i.fas.fa-clock
-            .stat-info
-              span Chờ duyệt lương
-              h2 15
+        if user.role === 'admin'
+          .stats-grid
+            .stat-card
+              .stat-icon.blue
+                i.fas.fa-user-check
+              .stat-info
+                span Nhân viên hiện tại
+                h2= dashboardStats ? dashboardStats.employeeCount : 0
+            .stat-card
+              .stat-icon.green
+                i.fas.fa-building
+              .stat-info
+                span Phòng ban
+                h2= dashboardStats ? dashboardStats.departmentCount : 0
+            .stat-card
+              .stat-icon.orange
+                i.fas.fa-clock
+              .stat-info
+                span Chờ duyệt lương
+                h2= dashboardStats ? dashboardStats.pendingSalaryCount : 0
+        else
+          .stats-grid
+            .stat-card
+              .stat-icon.blue
+                i.fas.fa-id-card
+              .stat-info
+                span Hồ sơ cá nhân
+                h2 01
+            .stat-card
+              .stat-icon.green
+                i.fas.fa-calendar-check
+              .stat-info
+                span Chấm công
+                h2 Cá nhân
+            .stat-card
+              .stat-icon.orange
+                i.fas.fa-wallet
+              .stat-info
+                span Phiếu lương
+                h2 Cá nhân
 
     // Script xử lý đóng/mở mượt mà cho Dropdown Menu
     script.

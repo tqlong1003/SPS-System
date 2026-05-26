@@ -33,9 +33,6 @@ html
           .submenu
             a.submenu-item(href="/departments") Phòng ban
             a.submenu-item(href="/positions") Chức vụ
-            a.submenu-item(href="#") Trình độ
-            a.submenu-item(href="#") Chuyên môn
-            a.submenu-item(href="#") Bằng cấp
             a.submenu-item(href="/attendance") Chấm công
             a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
@@ -106,6 +103,26 @@ html
           p Đang xử lý bảng lương cho nhân viên: 
             strong #{emp ? emp.name : ""}
 
+        .table-container(style="margin-bottom: 24px;")
+          table
+            thead
+              tr
+                th Tháng
+                th Tên nhân viên
+                th Mã nhân viên
+                th Lương cơ bản (VND)
+                th Chức vụ
+                th Số công thực tế
+            tbody
+              - const summary = salarySummary || { month: salaryMonth || new Date().toISOString().slice(0, 7), name: emp?.name || 'Chưa cập nhật', employeeCode: emp?.employeeCode || emp?.code || emp?.maNV || 'Chưa xếp mã', baseSalary: Number(emp?.basicSalary || 0), role: emp?.role || 'Chưa cập nhật', attendanceDays: 0 }
+              tr
+                td= summary.month
+                td(style="font-weight: bold;")= summary.name
+                td= summary.employeeCode
+                td= summary.baseSalary.toLocaleString('vi-VN') + ' đ'
+                td= summary.role
+                td= summary.attendanceDays
+
         .center-wrapper
           .card-form
             .card-header
@@ -115,27 +132,42 @@ html
             form(method="POST")
               .form-group
                 label Tháng trả lương
-                input(type="month", name="month", required, value=new Date().toISOString().slice(0, 7))
+                input(type="month", name="month", required, value=salaryMonth)
+
+              .form-group
+                label Công chuẩn tháng
+                input(type="number", value=summary.standardWorkDays || 26, readonly, style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; font-weight: bold;")
+
+              .form-group 
+                label Tên nhân viên
+                input(type="text", name="employeeName", value=emp ? emp.name : "", readonly, style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; font-weight: bold;")  
+
+              .form-group
+                label Mã nhân viên
+                input(type="text", name="employeeCode", value=emp ? emp.employeeCode || emp.code || emp.maNV : "", readonly, style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; font-weight: bold;")
+
+              .form-group
+                label Chức vụ
+                input(type="text", name="role", value=emp ? emp.role : "", readonly, style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; font-weight: bold;")
               
               .form-group
-                label Lương cứng (VNĐ) (Tự động lấy từ hồ sơ)
+                label Lương cơ bản (VNĐ) (Tự động lấy từ hồ sơ)
                 input(type="number", name="baseSalary", value=(emp.basicSalary || 0), readonly, style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; font-weight: bold;")
               
+              .form-group 
+                label Số công thực tế (tự động cập nhật từ dữ liệu chấm công)
+                input(type="number", name="attendanceDays", value=summary.attendanceDays || 0, readonly, style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; font-weight: bold;")
+
               .form-group
                 label Thưởng
                 input(type="number", name="bonus", value="0")
               
               .form-group
-                label Phụ cấp
-                input(type="number", name="allowance", value="0")
-              
-              .form-group
-                label Tăng lương bổ sung
-                input(type="number", name="raise", value="0")
-              
-              .form-group
                 label Tạm ứng lương
                 input(type="number", name="advance", value="0")
+
+              p(style="margin-top: 12px; color: #4b5563; font-size: 0.95rem; line-height: 1.5;")
+                | Công thức áp dụng: (Lương cơ bản / công chuẩn) x số công + thưởng - tạm ứng
               
               .form-actions
                 button.btn-save(type="submit") 

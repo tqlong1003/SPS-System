@@ -38,9 +38,6 @@ html
           .submenu.show
             a.submenu-item(href="/departments") Phòng ban
             a.submenu-item(href="/positions") Chức vụ
-            a.submenu-item(href="#") Trình độ
-            a.submenu-item(href="#") Chuyên môn
-            a.submenu-item(href="#") Bằng cấp
             a.submenu-item(href="/attendance") Chấm công
             a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
@@ -111,17 +108,16 @@ html
           h1 📝 Chỉnh sửa hồ sơ nhân viên
           p Cập nhật lại các thông tin thay đổi của nhân viên vào hệ thống.
         
-        .card(style="max-width: 900px; margin: 30px auto; background: white; padding: 25px; border-radius: 12px; box-shadow: var(--shadow);")
+        .card(style="max-width: 900px; margin: 30px auto;")
           .card-header
-            i.fas.fa-user-edit(style="color: var(--primary); font-size: 1.5rem; margin-right: 10px;")
-            h2(style="display: inline-block;") Sơ yếu lý lịch nhân viên
+            i.fas.fa-user-edit(style="color: var(--primary);")
+            h2 Sơ sơ yếu lý lịch nhân viên
 
-          // ĐÃ ĐƯỢC CHỈNH SỬA: Bao bọc toàn bộ các input và cả phần nút bấm hành động bên dưới
-          form(method="POST" enctype="multipart/form-data" style="max-width: 100%; padding: 0; background: transparent; box-shadow: none; border: none; margin: 20px 0 0 0;")
+          form(method="POST" enctype="multipart/form-data")
             // KHỐI 1: THÔNG TIN CƠ BẢN
             h3(style="margin-bottom: 15px; color: var(--primary); border-bottom: 1px solid #eee; padding-bottom: 5px;") 
               i.fas.fa-id-card(style="margin-right: 8px;") 
-              | Thông tin định danh & Cơ bản
+              | Thông tin cơ bản & liên hệ
             
             .form-row
               .form-group
@@ -133,11 +129,11 @@ html
             
             .form-row
               .form-group
-                label Thay đổi ảnh đại diện
+                label Ảnh đại diện (Chọn tệp ảnh)
                 input(type="file" name="avatar" accept="image/*")
                 if emp.avatar
                   div(style="margin-top: 5px;")
-                    small Ảnh hiện tại: 
+                    small Ảnh hiện tại:
                     a(href=emp.avatar target="_blank" style="color: var(--primary);") Xem ảnh
               .form-group
                 label Giới tính
@@ -151,58 +147,29 @@ html
                 label Ngày sinh
                 input(type="date" name="dob" value=emp.dob)
               .form-group
-                label Nơi sinh
-                input(type="text" name="pob" value=emp.pob placeholder="Ví dụ: Hà Nội")
-
-            .form-row
-              .form-group
-                label Nguyên quán
-                input(type="text" name="hometown" value=emp.hometown placeholder="Quê quán đăng ký khai sinh")
-              .form-group
-                label Quốc tịch
-                input(type="text" name="nationality" value=emp.nationality || "Việt Nam")
-
-            .form-row
-              .form-group
                 label Số CCCD / CMND
                 input(type="text" name="cccd" value=emp.cccd placeholder="Nhập 12 số định danh công dân")
+
+            .form-row
               .form-group
-                label Ngày cấp CCCD
-                input(type="date" name="cccdDate" value=emp.cccdDate)
+                label Quê quán
+                input(type="text" name="hometown" value=emp.hometown placeholder="Quê quán đăng ký khai sinh")
+              .form-group
+                label Nơi ở tạm trú
+                input(type="text" name="temporaryAddress" value=emp.temporaryAddress placeholder="Địa chỉ nơi ở hiện tại")
 
             .form-row
               .form-group
                 label Số điện thoại
                 input(type="tel" name="phone" value=emp.phone placeholder="Ví dụ: 0912345678" pattern="[0-9]{10,11}")
               .form-group
-                label Email nhân viên <span style="color:red">*</span>
-                input(type="email" name="email" value=emp.email placeholder="Ví dụ: nguyenvanb@company.com" required)
+                label Email
+                input(type="email" name="email" value=emp.email placeholder="Ví dụ: ten@congty.com")
 
-            // KHỐI 2: ĐỊA CHỈ & THÀNH PHẦN KHÁC
-            h3(style="margin: 25px 0 15px 0; color: var(--primary); border-bottom: 1px solid #eee; padding-bottom: 5px;") 
-              i.fas.fa-map-marked-alt(style="margin-right: 8px;") 
-              | Địa chỉ cư trú & Thành phần dân cư
-
-            .form-group
-              label Hộ khẩu thường trú
-              input(type="text" name="permanentAddress" value=emp.permanentAddress placeholder="Địa chỉ theo sổ hộ khẩu / CCCD")
-            
-            .form-group
-              label Nơi ở tạm trú
-              input(type="text" name="temporaryAddress" value=emp.temporaryAddress placeholder="Địa chỉ nơi ở hiện tại")
-
-            .form-row
-              .form-group
-                label Dân tộc
-                input(type="text" name="ethnicity" value=emp.ethnicity || "Kinh")
-              .form-group
-                label Tôn giáo
-                input(type="text" name="religion" value=emp.religion || "Không")
-
-            // KHỐI 3: CÔNG VIỆC & TRÌNH ĐỘ
+            // KHỐI 2: CÔNG VIỆC & VỊ TRÍ
             h3(style="margin: 25px 0 15px 0; color: var(--primary); border-bottom: 1px solid #eee; padding-bottom: 5px;") 
               i.fas.fa-briefcase(style="margin-right: 8px;") 
-              | Vị trí công tác & Trình độ học văn
+              | Công việc & vị trí
             
             .form-row
               .form-group
@@ -211,14 +178,6 @@ html
               .form-group
                 label Chức vụ
                 input(type="text" name="role" value=emp.role placeholder="Ví dụ: Developer, Trưởng phòng...")
-
-            .form-row
-              .form-group
-                label Ngày vào làm
-                input(type="date" name="startDate" value=emp.startDate)
-              .form-group
-                label Lương cứng (VNĐ)
-                input(type="number" name="basicSalary" value=emp.basicSalary placeholder="Ví dụ: 10000000")
 
             .form-row
               .form-group
@@ -234,11 +193,15 @@ html
                   option(value="Thử việc" selected=emp.status==='Thử việc') Thử việc
                   option(value="Đã nghỉ việc" selected=emp.status==='Đã nghỉ việc') Đã nghỉ việc
 
-            //- Phần sửa đổi nằm ở đây: Thụt lề chuẩn chỉnh cho khối nút bấm hành động
+            .form-row
+              .form-group
+                label Lương cứng (VNĐ)
+                input(type="number" name="basicSalary" value=emp.basicSalary placeholder="Ví dụ: 10000000")
+
             .form-actions(style="margin-top: 30px; display: flex; gap: 15px; justify-content: flex-end;")
               button.btn-save(type="submit") 
                 i.fas.fa-save(style="margin-right: 8px;")
-                | Lưu thông tin thay đổi
+                | Lưu hồ sơ nhân viên
               a.btn-cancel(href="/employees" class="btn" style="text-decoration: none;") 
                 i.fas.fa-times(style="margin-right: 8px;")
                 | Hủy bỏ

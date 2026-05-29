@@ -24,8 +24,6 @@ html
           .submenu
             a.submenu-item(href="/dashboard") Thống kê
             a.submenu-item(href="/employees") #{user.role === 'admin' ? 'Danh sách nhân viên' : 'Thông tin cá nhân'}
-            if user.role === 'admin'
-              a.submenu-item(href="/accounts") Danh sách tài khoản
 
         // --- NHÂN VIÊN ---
         .menu-group
@@ -59,15 +57,6 @@ html
             else
               a.submenu-item(href="/salary") Phiếu lương của tôi
 
-        // --- QUẢN LÝ CÔNG TÁC ---
-        .menu-group
-          a.menu-item.has-submenu(href="#")
-            span
-              i.fas.fa-plane-departure
-              span Quản lý công tác
-            i.fas.fa-chevron-down.toggle-icon
-          .submenu
-            a.submenu-item(href="#") Danh sách công tác
 
         // --- KHEN THƯỞNG - KỶ LUẬT ---
         .menu-group
@@ -77,8 +66,9 @@ html
               span Khen thưởng - Kỷ luật
             i.fas.fa-chevron-down.toggle-icon
           .submenu
-            a.submenu-item(href="#") Khen thưởng
-            a.submenu-item(href="#") Kỷ luật
+            a.submenu-item(href="/ktkl") Danh sách KTKL
+            if user.role === 'admin'
+            a.submenu-item(href="/ktkl/add") Thêm mới KTKL
 
         // --- TÀI KHOẢN ---
         .menu-group
@@ -88,11 +78,11 @@ html
               span Tài khoản
             i.fas.fa-chevron-down.toggle-icon
           .submenu
-            a.submenu-item(href="#") Thông tin tài khoản
+            a.submenu-item(href="/profile") Thông tin tài khoản
             if user.role === 'admin'
               a.submenu-item(href="/accounts") Danh sách tài khoản
               a.submenu-item(href="/register") Tạo tài khoản
-            a.submenu-item(href="#") Đổi mật khẩu
+            a.submenu-item(href="/change-password") Đổi mật khẩu
             a.submenu-item(href="/logout") Đăng xuất
 
     // Khu vực bên phải

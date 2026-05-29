@@ -1314,6 +1314,112 @@ fastify.get('/contracts/delete/:id', { preHandler: [auth, isAdmin] }, async (req
   reply.redirect('/contracts');
 });
 
+// ================= THÔNG TIN TÀI KHOẢN (CẬP NHẬT) =================
+fastify.get('/profile', { preHandler: [auth] }, async (req, reply) => {
+  try {
+    // Lấy thông tin chi tiết nhân viên từ bảng employees
+    const emp = await fastify.mongo.db.collection('employees').findOne({ 
+      userId: new ObjectId(req.user.id) 
+    }) || {};
+    
+    // Lấy thông tin tài khoản (có mật khẩu)
+    const account = await fastify.mongo.db.collection('users').findOne({ 
+      _id: new ObjectId(req.user.id) 
+    });
+
+    return reply.view('profile.pug', { 
+      user: req.user, 
+      account: account, // Truyền thêm dữ liệu tài khoản
+      emp: emp 
+    });
+  } catch (err) {
+    fastify.log.error(err);
+    return reply.status(500).send('❌ Lỗi tải thông tin cá nhân!');
+  }
+});
+
+// ================= ĐỔI MẬT KHẨU =================
+
+// Hiển thị form đổi mật khẩu
+fastify.get('/change-password', { preHandler: [auth] }, async (req, reply) => {
+  return reply.view('change_password.pug', {
+    user: req.user,
+    error: null,
+    success: null
+  })
+})
+
+// Xử lý đổi mật khẩu
+fastify.post('/change-password', { preHandler: [auth] }, async (req, reply) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body
+
+    // Kiểm tra nhập đủ
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return reply.view('change_password.pug', {
+        user: req.user,
+        error: 'Vui lòng nhập đầy đủ thông tin!',
+        success: null
+      })
+    }
+
+    // Kiểm tra xác nhận mật khẩu
+    if (newPassword !== confirmPassword) {
+      return reply.view('change_password.pug', {
+        user: req.user,
+        error: 'Mật khẩu xác nhận không khớp!',
+        success: null
+      })
+    }
+
+    // Tìm user hiện tại
+    const user = await fastify.mongo.db.collection('users').findOne({
+      _id: new ObjectId(req.user.id)
+    })
+
+    if (!user) {
+      return reply.view('change_password.pug', {
+        user: req.user,
+        error: 'Không tìm thấy tài khoản!',
+        success: null
+      })
+    }
+
+    // Kiểm tra mật khẩu cũ
+    const match = await bcrypt.compare(currentPassword, user.password)
+
+    if (!match) {
+      return reply.view('change_password.pug', {
+        user: req.user,
+        error: 'Mật khẩu hiện tại không đúng!',
+        success: null
+      })
+    }
+
+    // Hash mật khẩu mới
+const hashedPassword = await bcrypt.hash(newPassword, 10)
+
+// Cập nhật DB
+await fastify.mongo.db.collection('users').updateOne(
+  { _id: user._id },
+  { $set: { password: hashedPassword } }
+)
+
+// Xóa cookie token để buộc đăng nhập lại và chuyển hướng về trang login
+return reply.clearCookie('token').redirect('/login')
+
+  } catch (err) {
+    fastify.log.error(err)
+
+    return reply.view('change_password.pug', {
+      user: req.user,
+      error: '❌ Đã xảy ra lỗi hệ thống!',
+      success: null
+    })
+  }
+})
+
+
 // ================= CHẠY SERVER =================
 fastify.listen({ port: 3000 }, err => {
   if (err) throw err

@@ -1,9 +1,29 @@
 doctype html
 html
   head
-    title Chỉnh sửa hợp đồng - SPS System
+    title Thông tin tài khoản - SPS System
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+    // Thêm style inline ở đây để sửa kích thước ảnh
+    style.
+      .avatar {
+        width: 150px; /* Tăng kích thước chiều rộng */
+        height: 150px; /* Tăng kích thước chiều cao, giữ tỷ lệ 1:1 cho hình tròn */
+        border-radius: 50%; /* Giữ hình ảnh bo tròn */
+        object-fit: cover; /* Đảm bảo hình ảnh được căn chỉnh tốt bên trong */
+        margin-bottom: 20px; /* Khoảng cách phía dưới ảnh */
+      }
+      .avatar-placeholder {
+        width: 150px; /* Tăng kích thước chiều rộng của placeholder */
+        height: 150px; /* Tăng kích thước chiều cao của placeholder */
+        border-radius: 50%; /* Giữ placeholder bo tròn */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 60px; /* Tăng kích thước chữ bên trong placeholder */
+        background-color: #ddd; /* Màu nền cho placeholder */
+        margin-bottom: 20px; /* Khoảng cách phía dưới placeholder */
+      }
   body.dashboard-body
     // Sidebar bên trái
     nav.sidebar
@@ -87,55 +107,52 @@ html
 
 
     main.main-content
-      header.topbar
-        .search-bar
-          i.fas.fa-search
-          input(type="text" placeholder="Tìm kiếm nhanh...")
-        .user-info
-          span.welcome Xin chào, 
-            strong #{user.username}
-          .avatar #{user.username.charAt(0).toUpperCase()}
-
-      .center-wrapper
-        .card-form
+      .profile-container
+        .card-profile
           .card-header
-            i.fas.fa-edit
-            h2 Chỉnh sửa hợp đồng
-          
-          form(action=`/contracts/edit/${contract._id}`, method="POST")
-            .form-group
-              label Số hợp đồng:
-              input(type="text", name="contractNumber", value=contract.contractNumber, required)
-            
-            .form-group
-              label Ngày ký:
-              input(type="date", name="signDate", value=contract.signDate, required)
-            
-            .form-group
-              label Loại hợp đồng:
-              select(name="contractType", style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid #e5e7eb;")
-                option(value="Thử việc", selected=contract.contractType === "Thử việc") Thử việc
-                option(value="Xác định thời hạn", selected=contract.contractType === "Xác định thời hạn") Xác định thời hạn
-                option(value="Không xác định thời hạn", selected=contract.contractType === "Không xác định thời hạn") Không xác định thời hạn
-            
-            .form-group
-              label Thời hạn:
-              input(type="text", name="duration", value=contract.duration, placeholder="VD: 1 năm, 6 tháng...")
-            
-            .form-group
-              label Nhân viên:
-              select(name="employeeId", style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid #e5e7eb;")
-                each emp in employees
-                  option(value=emp._id, selected=contract.employeeId.toString() === emp._id.toString())= emp.name
-            
-            .form-actions
-              button.btn-save(type="submit") Cập nhật
+            i.fas.fa-user-circle
+            h2 Thông tin cá nhân
+  
+          if user.role === 'admin'
+            .profile-grid
+              .form-group
+                label Tên đăng nhập
+                input(type="text" value=user.username disabled)
+              .form-group
+                label Vai trò
+                span.badge-admin Admin
 
-    script.
-      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
-        item.addEventListener('click', function(e) {
-          e.preventDefault();
-          this.closest('.menu-group').querySelector('.submenu').classList.toggle('show');
-          this.querySelector('.toggle-icon').classList.toggle('rotate');
-        });
-      });
+            .action-footer
+              a.btn-back(href="/dashboard") Quay lại Dashboard
+
+          else
+            .avatar-section
+              if emp.avatar
+                img.avatar(src=emp.avatar alt="Avatar")
+              else
+                .avatar-placeholder= user.username.charAt(0).toUpperCase()
+              h3= emp.name || 'Người dùng'
+              p.role-text= emp.department || 'Chưa cập nhật'
+
+            .profile-grid
+              .form-group
+                label Tên đăng nhập
+                input(type="text" value=user.username disabled)
+              
+              .form-group
+                label Họ tên
+                input(type="text" value=(emp.name || 'Chưa cập nhật') disabled)
+              .form-group
+                label Phòng ban
+                input(type="text" value=(emp.department || 'Chưa cập nhật') disabled)
+              .form-group
+                label Chức vụ
+                input(type="text" value=(emp.role || 'Chưa cập nhật') disabled)
+              .form-group
+                label Số điện thoại
+                - var phone = emp.phone || 'Chưa cập nhật'
+                - var maskedPhone = phone.length > 4 ? phone.slice(0, -4) + '****' : '****'
+                input(type="text" value=maskedPhone disabled)
+            
+            .action-footer
+              a.btn-back(href="/dashboard") Quay lại Trang chủ

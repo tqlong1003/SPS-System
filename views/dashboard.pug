@@ -58,18 +58,6 @@ html
               a.submenu-item(href="/salary") Phiếu lương của tôi
 
 
-        // --- KHEN THƯỞNG - KỶ LUẬT ---
-        .menu-group
-          a.menu-item.has-submenu(href="#")
-            span
-              i.fas.fa-award
-              span Khen thưởng - Kỷ luật
-            i.fas.fa-chevron-down.toggle-icon
-          .submenu
-            a.submenu-item(href="/ktkl") Danh sách KTKL
-            if user.role === 'admin'
-            a.submenu-item(href="/ktkl/add") Thêm mới KTKL
-
         // --- TÀI KHOẢN ---
         .menu-group
           a.menu-item.has-submenu(href="#")

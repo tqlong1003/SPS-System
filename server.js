@@ -519,23 +519,28 @@ fastify.get('/employees/delete/:id', { preHandler: [auth, isAdmin] }, async (req
 });
 
 // Xem chi tiết nhân viên (Cả Admin và User thường đều có quyền xem)
+
 fastify.get('/employees/detail/:id', { preHandler: [auth] }, async (req, reply) => {
   try {
-    // User thường chỉ được mở đúng hồ sơ của mình, không được mở hồ sơ người khác bằng URL trực tiếp.
-    const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) });
+    const employeeId = new ObjectId(req.params.id);
+    const emp = await fastify.mongo.db.collection('employees').findOne({ _id: employeeId });
+    
     if (!emp) {
       return reply.code(404).send('Không tìm thấy nhân viên');
     }
 
-    if (req.user.role !== 'admin') {
-      const employee = await findEmployeeByUserId(req.user.id, req.user.username)
+    // 1. Truy vấn hợp đồng của nhân viên này
+    const contract = await fastify.mongo.db.collection('contracts').findOne({ employeeId: employeeId });
 
+    if (req.user.role !== 'admin') {
+      const employee = await findEmployeeByUserId(req.user.id, req.user.username);
       if (!employee || employee._id.toString() !== emp._id.toString()) {
         return reply.code(403).send('❌ Bạn không có quyền xem hồ sơ nhân viên khác');
       }
     }
 
-    return reply.view('detail.pug', { emp, user: req.user });
+    // 2. Truyền thêm biến contract vào view
+    return reply.view('detail.pug', { emp, contract, user: req.user });
   } catch (error) {
     fastify.log.error(error);
     return reply.code(500).send('Lỗi máy chủ');
@@ -1222,16 +1227,30 @@ fastify.post('/salary/provisional/approve-all', { preHandler: [auth, isAdmin] },
 // Quy tắc quyền:
 // - admin: xem toàn bộ hợp đồng và CRUD đầy đủ.
 // - user: chỉ xem hợp đồng gắn với employee của mình, không có quyền sửa.
+// ================= QUẢN LÝ HỢP ĐỒNG =================
 fastify.get('/contracts', { preHandler: [auth] }, async (req, reply) => {
   let contracts = [];
 
   if (req.user.role === 'admin') {
+    // Admin vẫn xem được toàn bộ
     contracts = await fastify.mongo.db.collection('contracts').find().toArray();
   } else {
-    const employee = await findEmployeeByUserId(req.user.id, req.user.username)
-    contracts = employee
-      ? await fastify.mongo.db.collection('contracts').find({ employeeId: employee._id }).toArray()
-      : []
+    // Tìm hồ sơ nhân viên
+    const employee = await findEmployeeByUserId(req.user.id, req.user.username);
+    
+    if (employee) {
+      // Chỉ lấy 1 hợp đồng mới nhất của nhân viên đó
+      const latestContract = await fastify.mongo.db.collection('contracts')
+        .findOne(
+          { employeeId: employee._id },
+          { sort: { createdAt: -1 } } // Sắp xếp giảm dần theo thời gian tạo
+        );
+      
+      // Nếu có hợp đồng thì đưa vào mảng để template hiển thị đúng cấu trúc cũ
+      contracts = latestContract ? [latestContract] : [];
+    } else {
+      contracts = [];
+    }
   }
 
   return reply.view('contracts.pug', { contracts, user: req.user });
@@ -1246,15 +1265,29 @@ fastify.get('/contracts/add', { preHandler: [auth, isAdmin] }, async (req, reply
 
 fastify.post('/contracts/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
   const { contractNumber, signDate, contractType, duration, employeeId } = req.body;
-  await fastify.mongo.db.collection('contracts').insertOne({
-    contractNumber,
-    signDate,
-    contractType,
-    duration,
-    employeeId: new ObjectId(employeeId),
-    createdAt: new Date()
-  });
-  reply.redirect('/contracts');
+
+  try {
+    // 1. "Hủy" hợp đồng cũ của nhân viên này
+    // Giả sử bạn muốn xóa hợp đồng cũ:
+    await fastify.mongo.db.collection('contracts').deleteMany({ 
+      employeeId: new ObjectId(employeeId) 
+    });
+
+    // 2. Thêm hợp đồng mới
+    await fastify.mongo.db.collection('contracts').insertOne({ 
+      contractNumber, 
+      signDate, 
+      contractType, 
+      duration, 
+      employeeId: new ObjectId(employeeId), 
+      createdAt: new Date() 
+    });
+
+    reply.redirect('/contracts');
+  } catch (err) {
+    fastify.log.error(err);
+    reply.status(500).send('❌ Lỗi khi thêm hợp đồng mới');
+  }
 });
 
 fastify.get('/contracts/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {

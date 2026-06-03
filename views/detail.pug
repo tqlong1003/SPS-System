@@ -12,6 +12,7 @@ html
       .info-group { background: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid var(--primary); }
       .info-label { font-size: 0.85rem; color: #6b7280; text-transform: uppercase; margin-bottom: 5px; font-weight: bold; }
       .info-value { font-size: 1.1rem; color: #1f2937; font-weight: 600; }
+      .section-title { margin-top: 35px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #e5e7eb; color: var(--primary); }
       @media (max-width: 768px) { .info-grid { grid-template-columns: 1fr; } }
   body.dashboard-body
     // Sidebar bên trái
@@ -21,20 +22,16 @@ html
         span SPS System
       
       .sidebar-menu
-        // --- TỔNG QUAN ---
         .menu-group
-          //- BỎ class .active để menu ở trạng thái đóng mặc định
           a.menu-item.has-submenu(href="#")
             span
               i.fas.fa-th-large
               span Tổng quan
             i.fas.fa-chevron-down.toggle-icon
-          //- BỎ class .show để submenu ẩn đi lúc ban đầu
           .submenu
             a.submenu-item(href="/dashboard") Thống kê
             a.submenu-item(href="/employees") #{user.role === 'admin' ? 'Danh sách nhân viên' : 'Thông tin cá nhân'}
 
-        // --- NHÂN VIÊN ---
         .menu-group
           a.menu-item.has-submenu(href="#")
             span
@@ -51,7 +48,6 @@ html
             else
               a.submenu-item(href="/employees") Thông tin cá nhân
 
-        // --- QUẢN LÝ LƯƠNG ---
         .menu-group
           a.menu-item.has-submenu(href="#")
             span
@@ -65,11 +61,6 @@ html
             else
               a.submenu-item(href="/salary") Phiếu lương của tôi
 
-
-
-        
-
-        // --- TÀI KHOẢN ---
         .menu-group
           a.menu-item.has-submenu(href="#")
             span
@@ -83,7 +74,6 @@ html
               a.submenu-item(href="/register") Tạo tài khoản
             a.submenu-item(href="/change-password") Đổi mật khẩu
             a.submenu-item(href="/logout") Đăng xuất
-
 
     // Khung nội dung chính
     main.main-content
@@ -107,42 +97,62 @@ html
             .profile-title
               h2(style="margin-bottom: 5px; color: #111827; font-size: 1.6rem;")= emp.name || "Chưa đặt tên"
               span.badge(style="background: rgba(99, 102, 241, 0.1); color: var(--primary); padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85rem;")= emp.role || "Chưa cập nhật chức vụ"
-          // Hiển thị đầy đủ tất cả các thông tin đầu vào tương tự form thêm nhân viên
+          
+          h3.section-title 
+            i.fas.fa-info-circle(style="margin-right: 10px;")
+            | Thông tin cá nhân
           .info-grid
             .info-group
               .info-label Mã nhân viên
               .info-value= emp.employeeCode || "Chưa cập nhật"
-            
             .info-group
               .info-label Họ và tên
               .info-value= emp.name || "Chưa cập nhật"
-            
             .info-group
               .info-label Chức vụ / Vị trí
               .info-value= emp.role || "Chưa cập nhật"
-            
             .info-group
               .info-label Phòng ban
               .info-value= emp.department || "Chưa cập nhật"
-            
             .info-group
               .info-label Số điện thoại
               .info-value= emp.phone || "Chưa cập nhật"
-            
             .info-group
               .info-label Email liên hệ
               .info-value= emp.email || "Chưa cập nhật"
-            
             .info-group
               .info-label Lương cứng (VNĐ)
               .info-value= Number(emp.basicSalary) ? Number(emp.basicSalary).toLocaleString('vi-VN') + " VNĐ" : "Chưa cập nhật"
 
-          // Các nút hành động phía dưới
+          // --- PHẦN HỢP ĐỒNG MỚI THÊM ---
+          h3.section-title
+            i.fas.fa-file-contract(style="margin-right: 10px;")
+            | Thông tin hợp đồng
+          
+          if contract
+            .info-grid
+              .info-group
+                .info-label Số hợp đồng
+                .info-value= contract.contractNumber
+              .info-group
+                .info-label Loại hợp đồng
+                .info-value= contract.contractType
+              .info-group
+                .info-label Ngày ký
+                .info-value= contract.signDate
+              .info-group
+                .info-label Thời hạn
+                .info-value= contract.duration
+          else
+            div(style="padding: 15px; background: #fff3f3; border-radius: 8px; color: #d32f2f; border: 1px solid #ffcdd2;")
+              i.fas.fa-exclamation-circle(style="margin-right: 8px;")
+              | Nhân viên này chưa có thông tin hợp đồng.
+
+          // Các nút hành động
           .form-actions(style="margin-top: 30px; display: flex; gap: 15px;")
             a.btn-cancel(href="/employees" style="flex: none; padding: 12px 25px; text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px;") 
               i.fas.fa-arrow-left(style="margin-right: 8px;")
               | Quay lại danh sách
-              
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
@@ -159,7 +169,6 @@ html
               if(icon) icon.classList.remove('rotate');
             }
           });
-
           submenu.classList.toggle('show');
           if (toggleIcon) toggleIcon.classList.toggle('rotate');
         });

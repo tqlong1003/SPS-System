@@ -38,7 +38,6 @@ html
             if user.role === 'admin'
               a.submenu-item(href="/departments") Phòng ban
               a.submenu-item(href="/positions") Chức vụ
-              a.submenu-item(href="/employees/add") Thêm mới nhân viên
               a.submenu-item(href="/employees") Danh sách nhân viên
             else
               a.submenu-item(href="/employees") Thông tin cá nhân
@@ -97,6 +96,12 @@ html
               | #{error}
           
           form(method="POST" action="/register")
+            .form-group
+              label Mã nhân viên
+              input(name="employeeCode" required)
+            .form-group
+              label Tên nhân viên
+              input(name="name" required)
             .form-group(style="margin-bottom: 15px;")
               label(style="display: block; margin-bottom: 5px; font-weight: 600;") Tên đăng nhập nhân viên
               input(name="username" placeholder="Nhập tên đăng nhập" required minlength="3" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;")

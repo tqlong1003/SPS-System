@@ -38,7 +38,6 @@ html
             if user.role === 'admin'
               a.submenu-item(href="/departments") Phòng ban
               a.submenu-item(href="/positions") Chức vụ
-              a.submenu-item(href="/employees/add") Thêm mới nhân viên
               a.submenu-item(href="/employees") Danh sách nhân viên
             else
               a.submenu-item(href="/employees") Thông tin cá nhân
@@ -93,6 +92,14 @@ html
             i.fas.fa-plus-circle
             h2 Tạo hợp đồng mới
           form(action="/contracts/add", method="POST")
+
+            //- Thêm đoạn này vào trong form sau các trường thông tin khác
+            .form-group
+              label Nhân viên:
+              select(name="employeeId" style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid #e5e7eb;" required)
+                option(value="") -- Chọn nhân viên --
+                each emp in employees
+                  option(value=emp._id)= emp.name
             .form-group
               label Số hợp đồng:
               input(type="text", name="contractNumber", required)

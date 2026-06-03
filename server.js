@@ -258,7 +258,7 @@ fastify.get('/register', { preHandler: [auth, isAdmin] }, async (req, reply) => 
 
 // 2. Xử lý đăng ký - Chỉ Admin mới có quyền thực thi
 fastify.post('/register', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const { username, password } = req.body;
+  const { username, password, employeeCode, name, department, role } = req.body;
 
   const existingUser = await fastify.mongo.db.collection('users').findOne({ username });
   if (existingUser) {
@@ -270,17 +270,21 @@ fastify.post('/register', { preHandler: [auth, isAdmin] }, async (req, reply) =>
 
   const hash = await bcrypt.hash(password, 10); 
   
+  // 1. Tạo tài khoản
   const userResult = await fastify.mongo.db.collection('users').insertOne({
     username, 
     password: hash,
-    role: 'user'
+    role: 'user' // Mặc định là user
   }); 
 
+  // 2. Tạo hồ sơ nhân viên tương ứng
   await fastify.mongo.db.collection('employees').insertOne({
-    userId: userResult.insertedId,
-    name: username,
-    role: 'Nhân viên mới',
-    department: 'Chưa cập nhật'
+    userId: userResult.insertedId, // Liên kết ID tài khoản
+    employeeCode: employeeCode,    // Mã nhân viên từ form
+    name: name || username,        // Tên nhân viên
+    department: department || 'Chưa cập nhật',
+    role: role || 'Nhân viên',
+    status: 'Đang làm việc'
   }); 
 
   reply.redirect('/accounts'); 
@@ -426,62 +430,6 @@ fastify.get('/employees', { preHandler: [auth] }, async (req, reply) => {
   return reply.view('employees.pug', { employees, user: req.user })
 })
 
-fastify.get('/employees/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  return reply.view('add.pug', { user: req.user })
-})
-
-// ĐÃ CẬP NHẬT: Xử lý nhận file ảnh tải lên và lưu trữ thông tin nhân viên
-fastify.post('/employees/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    // Route này vừa nhận file ảnh, vừa nhận text fields trong multipart/form-data.
-    // basicSalary được ép sang Number ngay từ đầu để tránh lỗi ở phần tính lương về sau.
-    const data = await req.file()
-    let avatarPath = ''
-
-    // Nếu có file ảnh được tải lên từ máy tính
-    if (data && data.file) {
-      const filename = Date.now() + '-' + data.filename
-      const uploadDir = path.join(__dirname, 'public', 'uploads')
-      
-      // Tạo tự động thư mục "uploads" nếu chưa có cấu trúc này trong dự án
-      if (!fs.existsSync(uploadDir)){
-          fs.mkdirSync(uploadDir, { recursive: true })
-      }
-
-      const saveTo = path.join(uploadDir, filename)
-      
-      // Tiến hành đưa luồng dữ liệu file ghi vào ổ đĩa cứng
-      await new Promise((resolve, reject) => {
-        const writeStream = fs.createWriteStream(saveTo)
-        data.file.pipe(writeStream)
-        data.file.on('end', resolve)
-        data.file.on('error', reject)
-      })
-
-      // Đường dẫn ảo dùng để hiển thị trên trình duyệt (qua cấu hình static)
-      avatarPath = `/public/uploads/${filename}`
-    }
-
-    // Đọc các trường dữ liệu text thông thường gửi kèm trong form
-    const employeeData = {}
-    for (const key in data.fields) {
-      const fieldValue = data.fields[key].value
-      employeeData[key] = key === 'basicSalary'
-        ? Number(fieldValue || 0)
-        : fieldValue
-    }
-
-    // Gán đường dẫn lưu trữ file ảnh vào thuộc tính avatar của nhân viên
-    employeeData.avatar = avatarPath
-
-    await fastify.mongo.db.collection('employees').insertOne(employeeData)
-    reply.redirect('/employees')
-
-  } catch (err) {
-    fastify.log.error(err)
-    return reply.status(500).send('❌ Đã xảy ra lỗi hệ thống trong quá trình upload ảnh!')
-  }
-})
 
 fastify.get('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
   const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
@@ -552,10 +500,23 @@ fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req,
   }
 })
 
+
 fastify.get('/employees/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  await fastify.mongo.db.collection('employees').deleteOne({ _id: new ObjectId(req.params.id) })
-  reply.redirect('/employees')
-})
+  const employeeId = new ObjectId(req.params.id);
+  
+  // 1. Tìm thông tin nhân viên trước khi xóa để lấy userId
+  const employee = await fastify.mongo.db.collection('employees').findOne({ _id: employeeId });
+  
+  if (employee && employee.userId) {
+    // 2. Nếu nhân viên có liên kết với tài khoản, xóa tài khoản đó
+    await fastify.mongo.db.collection('users').deleteOne({ _id: new ObjectId(employee.userId) });
+  }
+  
+  // 3. Xóa hồ sơ nhân viên
+  await fastify.mongo.db.collection('employees').deleteOne({ _id: employeeId });
+  
+  reply.redirect('/employees');
+});
 
 // Xem chi tiết nhân viên (Cả Admin và User thường đều có quyền xem)
 fastify.get('/employees/detail/:id', { preHandler: [auth] }, async (req, reply) => {
@@ -1277,7 +1238,9 @@ fastify.get('/contracts', { preHandler: [auth] }, async (req, reply) => {
 });
 
 fastify.get('/contracts/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const employees = await fastify.mongo.db.collection('employees').find().toArray();
+  // Lấy danh sách nhân viên từ DB
+  const employees = await fastify.mongo.db.collection('employees').find().sort({ name: 1 }).toArray();
+  // Truyền biến employees vào view
   return reply.view('add_contract.pug', { employees, user: req.user });
 });
 

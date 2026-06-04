@@ -154,6 +154,7 @@ table {
   width: 100%;
   background: white;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 th {
@@ -165,6 +166,8 @@ th {
   letter-spacing: 0.05em;
   font-weight: 700;
   border-bottom: 2px solid #e2e8f0;
+  text-align: left;
+  vertical-align: middle;
 }
 
 td {
@@ -172,6 +175,14 @@ td {
   border-bottom: 1px solid #f1f5f9;
   font-size: 0.95rem;
   color: #334155;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.table-container th:last-child,
+.table-container td:last-child {
+  text-align: center;
+  white-space: nowrap;
 }
 
 tr:last-child td {
@@ -361,6 +372,8 @@ tr:hover {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 25px;
+  gap: 20px;
+  flex-wrap: wrap;
 }
 
 .search-bar {
@@ -373,10 +386,34 @@ tr:hover {
   box-shadow: var(--shadow);
 }
 
+.topbar > .search-bar {
+  margin: 0;
+  max-width: 440px;
+  width: min(100%, 440px);
+  flex: 0 1 440px;
+}
+
 .search-bar input {
   border: none;
   outline: none;
   background: transparent;
+  margin: 0;
+  padding: 10px 8px;
+  min-width: 0;
+  flex: 1;
+  box-shadow: none;
+}
+
+.search-bar button,
+.search-bar .btn {
+  width: auto;
+  margin-top: 0;
+  padding: 10px 18px;
+  flex-shrink: 0;
+}
+
+.search-bar a {
+  white-space: nowrap;
 }
 
 /* USER */

@@ -669,6 +669,11 @@ fastify.get('/attendance', { preHandler: [auth] }, async (req, reply) => {
   const attendanceCollection = fastify.mongo.db.collection('attendance')
   const employee = await findEmployeeByUserId(req.user.id, req.user.username)
   const workDate = getWorkDate()
+  const searchKeyword = typeof req.query.keyword === 'string' ? req.query.keyword.trim() : ''
+  const searchRegex = buildContainsRegex(searchKeyword)
+  const selectedEmployeeId = req.user.role === 'admin'
+    ? normalizeObjectId(req.query.employeeId)
+    : employee?._id || null
 
   const filter = req.user.role === 'admin'
     ? {}
@@ -682,12 +687,54 @@ fastify.get('/attendance', { preHandler: [auth] }, async (req, reply) => {
     .toArray()
 
   const enrichedAttendance = await enrichAttendanceRecords(attendanceRecords)
+  const attendancePeople = req.user.role === 'admin'
+    ? [...new Map(
+      enrichedAttendance
+        .filter(record => record.employeeId)
+        .map(record => {
+          const employeeKey = record.employeeId.toString()
+          return [employeeKey, {
+            employeeId: employeeKey,
+            employeeName: record.employeeName,
+            totalDays: 0
+          }]
+        })
+    ).values()]
+        .map(person => ({
+          ...person,
+          totalDays: enrichedAttendance.filter(record => record.employeeId?.toString() === person.employeeId).length
+        }))
+        .sort((left, right) => left.employeeName.localeCompare(right.employeeName, 'vi'))
+    : []
+
+  const searchedAttendancePeople = searchRegex
+    ? attendancePeople.filter(person => searchRegex.test(person.employeeName || ''))
+    : attendancePeople
+
+  const filteredAttendance = enrichedAttendance.filter(record => {
+    const matchesEmployee = selectedEmployeeId
+      ? record.employeeId?.toString() === selectedEmployeeId.toString()
+      : true
+    const matchesKeyword = searchRegex
+      ? searchRegex.test(record.employeeName || '')
+      : true
+
+    return matchesEmployee && matchesKeyword
+  })
+
+  const selectedAttendancePerson = selectedEmployeeId
+    ? attendancePeople.find(person => person.employeeId === selectedEmployeeId.toString()) || null
+    : null
+
   const todayAttendance = employee
     ? enrichedAttendance.find(record => record.employeeId?.toString() === employee._id.toString() && record.workDate === workDate)
     : null
 
   return reply.view('attendance.pug', {
-    attendance: enrichedAttendance,
+    attendance: filteredAttendance,
+    attendancePeople: searchedAttendancePeople,
+    selectedAttendancePerson,
+    searchKeyword,
     user: req.user,
     employee,
     todayAttendance,

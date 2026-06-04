@@ -78,9 +78,19 @@ html
 
     main.main-content
       header.topbar
-        .search-bar
-          i.fas.fa-search
-          input(type="text" placeholder="Tìm kiếm...")
+        if user.role === 'admin'
+          form.search-bar(method="GET" action="/attendance")
+            if selectedAttendancePerson
+              input(type="hidden" name="employeeId" value=selectedAttendancePerson.employeeId)
+            i.fas.fa-search
+            input(type="text" name="keyword" value=searchKeyword placeholder="Tìm kiếm theo tên nhân viên...")
+            button.btn-add(type="submit") Tìm kiếm
+            if searchKeyword
+              a.btn-cancel(href=selectedAttendancePerson ? `/attendance?employeeId=${selectedAttendancePerson.employeeId}` : '/attendance' style="display: inline-flex; align-items: center; justify-content: center; text-decoration: none;") Xóa
+        else
+          .search-bar
+            i.fas.fa-search
+            input(type="text" placeholder="Tìm kiếm..." readonly)
         .user-info
           span.welcome Xin chào, 
             strong #{user.username}
@@ -185,6 +195,26 @@ html
             i.fas.fa-plus
             |  Thêm chấm công thủ công
 
+        if user.role === 'admin' && attendancePeople && attendancePeople.length > 0
+          .card-form(style="max-width: 100%; margin-bottom: 20px; padding: 24px;")
+            .card-header(style="margin-bottom: 18px;")
+              i.fas.fa-users
+              h2 Danh sách nhân viên đã chấm công
+            div(style="display: flex; flex-wrap: wrap; gap: 12px;")
+              each person in attendancePeople
+                a(href=`/attendance?employeeId=${person.employeeId}` style=`display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 999px; text-decoration: none; font-weight: 600; border: 1px solid #cbd5e1; background: ${selectedAttendancePerson && selectedAttendancePerson.employeeId === person.employeeId ? 'var(--primary)' : '#ffffff'}; color: ${selectedAttendancePerson && selectedAttendancePerson.employeeId === person.employeeId ? '#ffffff' : '#334155'}; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);`)
+                  i.fas.fa-user-check
+                  span #{person.employeeName}
+                  span(style=`padding: 2px 8px; border-radius: 999px; font-size: 0.85rem; background: ${selectedAttendancePerson && selectedAttendancePerson.employeeId === person.employeeId ? 'rgba(255,255,255,0.2)' : '#eef2ff'}; color: inherit;`) #{person.totalDays} ngày
+              if selectedAttendancePerson
+                a(href="/attendance" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 999px; text-decoration: none; font-weight: 600; border: 1px dashed #94a3b8; color: #475569; background: #f8fafc;")
+                  i.fas.fa-rotate-left
+                  span Xem tất cả
+
+        if selectedAttendancePerson
+          div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #eef2ff; color: #3730a3; font-weight: 600;")
+            | Đang hiển thị lịch sử chấm công theo ngày của nhân viên: #{selectedAttendancePerson.employeeName}
+
         .table-container
           table
             thead
@@ -202,7 +232,11 @@ html
               if attendance && attendance.length > 0
                 each record in attendance
                   tr
-                    td= record.employeeName
+                    td
+                      if user.role === 'admin'
+                        a(href=`/attendance?employeeId=${record.employeeId}` style="font-weight: 600; color: var(--primary); text-decoration: none;")= record.employeeName
+                      else
+                        = record.employeeName
                     td= record.workDate
                     td= record.checkInDisplay
                     td= record.checkOutDisplay

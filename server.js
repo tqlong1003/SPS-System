@@ -268,8 +268,32 @@ fastify.post('/register', { preHandler: [auth, isAdmin] }, async (req, reply) =>
     }); 
   }
 
-  const hash = await bcrypt.hash(password, 10); 
-  
+  const hash = await bcrypt.hash(password, 10);
+
+  // Kiểm tra nếu chức vụ là Trưởng phòng → phòng ban đó chưa được có trưởng phòng khác
+  const newRole = role || 'Nhân viên'
+  const newDepartment = department || 'Chưa cập nhật'
+  const isManagerRole = newRole.toLowerCase().includes('trưởng phòng')
+    || newRole.toLowerCase().includes('truong phong')
+    || newRole.toLowerCase().includes('trưởng')
+
+  if (isManagerRole && newDepartment && newDepartment !== 'Chưa cập nhật') {
+    const existingManager = await fastify.mongo.db.collection('employees').findOne({
+      department: newDepartment,
+      $or: [
+        { role: { $regex: 'trưởng phòng', $options: 'i' } },
+        { role: { $regex: 'truong phong', $options: 'i' } }
+      ]
+    })
+
+    if (existingManager) {
+      return reply.view('register.pug', {
+        error: `❌ Phòng ban "${newDepartment}" đã có trưởng phòng là "${existingManager.name}". Mỗi phòng ban chỉ được có 1 trưởng phòng!`,
+        user: req.user
+      })
+    }
+  }
+
   // 1. Tạo tài khoản
   const userResult = await fastify.mongo.db.collection('users').insertOne({
     username, 
@@ -282,10 +306,18 @@ fastify.post('/register', { preHandler: [auth, isAdmin] }, async (req, reply) =>
     userId: userResult.insertedId, // Liên kết ID tài khoản
     employeeCode: employeeCode,    // Mã nhân viên từ form
     name: name || username,        // Tên nhân viên
-    department: department || 'Chưa cập nhật',
-    role: role || 'Nhân viên',
+    department: newDepartment,
+    role: newRole,
     status: 'Đang làm việc'
-  }); 
+  });
+
+  // 3. Nếu là trưởng phòng → cập nhật manager trong departments
+  if (isManagerRole && newDepartment && newDepartment !== 'Chưa cập nhật') {
+    await fastify.mongo.db.collection('departments').updateOne(
+      { name: newDepartment },
+      { $set: { manager: name || username } }
+    )
+  }
 
   reply.redirect('/accounts'); 
 });
@@ -433,7 +465,9 @@ fastify.get('/employees', { preHandler: [auth] }, async (req, reply) => {
 
 fastify.get('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
   const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
-  return reply.view('edit.pug', { emp, user: req.user })
+  const departments = await fastify.mongo.db.collection('departments').find().sort({ name: 1 }).toArray()
+  const positions = await fastify.mongo.db.collection('positions').find().sort({ name: 1 }).toArray()
+  return reply.view('edit.pug', { emp, departments, positions, user: req.user, error: req.query.error || null })
 })
 
 fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
@@ -491,6 +525,49 @@ fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req,
       { _id: new ObjectId(req.params.id) },
       { $set: updatedEmployeeData }
     )
+
+    // Nếu chức vụ là Trưởng phòng → tự động cập nhật field manager trong departments
+    const newRole = updatedEmployeeData.role || ''
+    const newDepartment = updatedEmployeeData.department || ''
+    const newName = updatedEmployeeData.name || ''
+
+    const isManagerRole = newRole.toLowerCase().includes('trưởng phòng')
+      || newRole.toLowerCase().includes('truong phong')
+      || newRole.toLowerCase().includes('trưởng')
+
+    if (isManagerRole && newDepartment && newName) {
+      // Kiểm tra xem phòng ban này đã có trưởng phòng khác chưa (không phải chính nhân viên đang sửa)
+      const existingManager = await fastify.mongo.db.collection('employees').findOne({
+        department: newDepartment,
+        _id: { $ne: new ObjectId(req.params.id) },
+        $or: [
+          { role: { $regex: 'trưởng phòng', $options: 'i' } },
+          { role: { $regex: 'truong phong', $options: 'i' } }
+        ]
+      })
+
+      if (existingManager) {
+        return reply.redirect(
+          `/employees/edit/${req.params.id}?error=${encodeURIComponent(`Phòng ban "${newDepartment}" đã có trưởng phòng là "${existingManager.name}". Mỗi phòng ban chỉ được có 1 trưởng phòng!`)}`
+        )
+      }
+
+      // Cập nhật manager cho đúng phòng ban của nhân viên này
+      await fastify.mongo.db.collection('departments').updateOne(
+        { name: newDepartment },
+        { $set: { manager: newName } }
+      )
+    } else if (newDepartment) {
+      // Nếu chức vụ không phải trưởng phòng, kiểm tra xem nhân viên này
+      // có đang là manager của phòng ban không → nếu có thì xóa đi
+      const dept = await fastify.mongo.db.collection('departments').findOne({ name: newDepartment })
+      if (dept && dept.manager === newName) {
+        await fastify.mongo.db.collection('departments').updateOne(
+          { name: newDepartment },
+          { $set: { manager: '' } }
+        )
+      }
+    }
     
     return reply.redirect('/employees')
 
@@ -816,7 +893,36 @@ fastify.get('/attendance/delete/:id', { preHandler: [auth, isAdmin] }, async (re
 // Hiện đã khóa admin-only để user không xem cấu hình tổ chức của toàn công ty.
 fastify.get('/departments', { preHandler: [auth, isAdmin] }, async (req, reply) => {
   const departments = await fastify.mongo.db.collection('departments').find().toArray()
-  return reply.view('departments.pug', { departments, user: req.user })
+
+  // Đếm số nhân viên trong từng phòng ban
+  const employeeCountByDept = await fastify.mongo.db.collection('employees').aggregate([
+    { $match: { employeeCode: { $exists: true, $ne: '' } } },
+    { $group: { _id: '$department', count: { $sum: 1 } } }
+  ]).toArray()
+
+  const countMap = new Map(employeeCountByDept.map(item => [item._id, item.count]))
+
+  const departmentsWithCount = departments.map(dept => ({
+    ...dept,
+    employeeCount: countMap.get(dept.name) || 0
+  }))
+
+  return reply.view('departments.pug', { departments: departmentsWithCount, user: req.user })
+})
+
+// Xem danh sách nhân viên theo phòng ban
+fastify.get('/departments/:id/employees', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const dept = await fastify.mongo.db.collection('departments').findOne({ _id: new ObjectId(req.params.id) })
+  if (!dept) {
+    return reply.status(404).send('❌ Không tìm thấy phòng ban')
+  }
+
+  const employees = await fastify.mongo.db.collection('employees').find({
+    department: dept.name,
+    employeeCode: { $exists: true, $ne: '' }
+  }).sort({ name: 1 }).toArray()
+
+  return reply.view('dept_employees.pug', { dept, employees, user: req.user })
 })
 
 fastify.get('/departments/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {

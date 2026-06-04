@@ -1,7 +1,7 @@
 doctype html
 html
   head
-    title Quản lý phòng ban - HRM System
+    title Nhân viên phòng #{dept.name} - HRM System
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
   body.dashboard-body
@@ -14,25 +14,23 @@ html
       .sidebar-menu
         // --- TỔNG QUAN ---
         .menu-group
-          //- BỎ class .active để menu ở trạng thái đóng mặc định
           a.menu-item.has-submenu(href="#")
             span
               i.fas.fa-th-large
               span Tổng quan
             i.fas.fa-chevron-down.toggle-icon
-          //- BỎ class .show để submenu ẩn đi lúc ban đầu
           .submenu
             a.submenu-item(href="/dashboard") Thống kê
             a.submenu-item(href="/employees") #{user.role === 'admin' ? 'Danh sách nhân viên' : 'Thông tin cá nhân'}
 
         // --- NHÂN VIÊN ---
         .menu-group
-          a.menu-item.has-submenu(href="#")
+          a.menu-item.has-submenu.active(href="#")
             span
               i.fas.fa-users
               span Nhân viên
             i.fas.fa-chevron-down.toggle-icon
-          .submenu
+          .submenu.show
             a.submenu-item(href="/attendance") Chấm công
             a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
@@ -56,10 +54,6 @@ html
             else
               a.submenu-item(href="/salary") Phiếu lương của tôi
 
-
-
-        
-
         // --- TÀI KHOẢN ---
         .menu-group
           a.menu-item.has-submenu(href="#")
@@ -75,12 +69,11 @@ html
             a.submenu-item(href="/change-password") Đổi mật khẩu
             a.submenu-item(href="/logout") Đăng xuất
 
-
     main.main-content
       header.topbar
         .search-bar
           i.fas.fa-search
-          input(type="text" placeholder="Tìm kiếm phòng ban...")
+          input(type="text" id="searchInput" placeholder="Tìm kiếm nhân viên trong phòng...")
         .user-info
           span.welcome Xin chào, 
             strong #{user.username}
@@ -88,42 +81,61 @@ html
 
       .content-wrapper
         .welcome-banner
-          h1 🏢 Danh sách phòng ban
-          p Quản lý cơ cấu bộ máy tổ chức của hệ thống cơ sở
+          h1 🏢 Phòng #{dept.name}
+          p
+            | Trưởng phòng: 
+            strong #{dept.manager ? dept.manager : 'Chưa cập nhật'}
+            |  &nbsp;·&nbsp; Tổng số: 
+            strong #{employees.length} nhân viên
 
-        if user.role === 'admin'
-          a.btn(href="/departments/add" style="display: inline-block; margin-bottom: 15px; text-decoration: none;")
-            i.fas.fa-plus
-            |  Thêm phòng ban
+        a.btn(href="/departments" style="display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; text-decoration: none;")
+          i.fas.fa-arrow-left
+          |  Quay lại danh sách phòng ban
 
-        .table-container
-          table
-            thead
-              tr
-                th Tên phòng ban
-                th Trưởng phòng
-                th(style="text-align: center;") Số nhân viên
-                if user.role === 'admin'
-                  th Hành động
-            tbody
-              if departments && departments.length > 0
-                each dept in departments
-                  tr
-                    td(style="font-weight: bold;")= dept.name
-                    td= dept.manager ? dept.manager : "Chưa cập nhật"
-                    td(style="text-align: center;")
-                      a(href=`/departments/${dept._id}/employees` style="display: inline-flex; align-items: center; gap: 6px; background: #e8f4fd; color: #1a73e8; padding: 4px 12px; border-radius: 20px; font-weight: 600; text-decoration: none; font-size: 0.92em;")
-                        i.fas.fa-users(style="font-size: 0.85em;")
-                        span= dept.employeeCount + ' người'
-                    if user.role === 'admin'
-                      td
-                        a.btn-edit(href=`/departments/edit/${dept._id}`) Sửa
-                        a.btn-delete(href=`/departments/delete/${dept._id}` style="margin-left: 5px;") Xóa
-              else
+        if employees && employees.length > 0
+          .table-container
+            table#empTable
+              thead
                 tr
-                  td(colspan=user.role === 'admin' ? "4" : "3", style="text-align: center; padding: 20px;") Chưa có dữ liệu phòng ban
+                  th STT
+                  th Mã NV
+                  th Họ và tên
+                  th Chức vụ
+                  th Trạng thái
+                  th Hành động
+              tbody
+                each emp, index in employees
+                  tr
+                    td(style="text-align: center; color: #888;")= index + 1
+                    td
+                      span(style="font-family: monospace; background: #f0f4ff; color: #3b4cca; padding: 2px 8px; border-radius: 4px; font-size: 0.9em;")= emp.employeeCode || 'Chưa có'
+                    td(style="font-weight: 600;")
+                      if emp.avatar
+                        img(src=emp.avatar alt="avatar" style="width: 30px; height: 30px; border-radius: 50%; object-fit: cover; margin-right: 8px; vertical-align: middle;")
+                      else
+                        span(style="display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #d1e3ff; color: #1a73e8; font-weight: bold; font-size: 0.85em; margin-right: 8px; vertical-align: middle;")= emp.name ? emp.name.charAt(0).toUpperCase() : '?'
+                      = emp.name || 'Chưa cập nhật'
+                    td= emp.role || 'Chưa cập nhật'
+                    td
+                      if emp.status === 'Đang làm việc'
+                        span(style="background: #e6f4ea; color: #137333; padding: 3px 10px; border-radius: 12px; font-size: 0.85em; font-weight: 600;")
+                          i.fas.fa-circle(style="font-size: 0.6em; margin-right: 4px;")
+                          = emp.status
+                      else
+                        span(style="background: #fce8e6; color: #c5221f; padding: 3px 10px; border-radius: 12px; font-size: 0.85em; font-weight: 600;")
+                          = emp.status || 'Không rõ'
+                    td
+                      a.btn-edit(href=`/employees/detail/${emp._id}` style="text-decoration: none;")
+                        i.fas.fa-eye(style="margin-right: 4px;")
+                        | Xem
+        else
+          .table-container
+            p(style="text-align: center; padding: 40px; color: #999;")
+              i.fas.fa-user-slash(style="font-size: 2em; display: block; margin-bottom: 10px;")
+              | Phòng ban này chưa có nhân viên nào
 
     script.
+      // Sidebar toggle
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
         item.addEventListener('click', function(e) {
           e.preventDefault();
@@ -141,5 +153,14 @@ html
 
           submenu.classList.toggle('show');
           toggleIcon.classList.toggle('rotate');
+        });
+      });
+
+      // Tìm kiếm nhân viên theo tên hoặc mã
+      document.getElementById('searchInput').addEventListener('input', function() {
+        const keyword = this.value.toLowerCase();
+        document.querySelectorAll('#empTable tbody tr').forEach(row => {
+          const text = row.innerText.toLowerCase();
+          row.style.display = text.includes(keyword) ? '' : 'none';
         });
       });

@@ -96,6 +96,10 @@ html
           p Cập nhật lại các thông tin thay đổi của nhân viên vào hệ thống.
         
         .card(style="max-width: 900px; margin: 30px auto;")
+          if error
+            .alert(style="background: #fff3f3; border: 1px solid #e74c3c; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; color: #c0392b; display: flex; align-items: center; gap: 10px;")
+              i.fas.fa-exclamation-circle
+              span ❌ #{error}
           .card-header
             i.fas.fa-user-edit(style="color: var(--primary);")
             h2 Sơ sơ yếu lý lịch nhân viên
@@ -161,10 +165,22 @@ html
             .form-row
               .form-group
                 label Phòng ban
-                input(type="text" name="department" value=emp.department placeholder="Ví dụ: Phòng Công nghệ, Hành chính...")
+                select(name="department")
+                  option(value="" disabled selected=!emp.department) -- Chọn phòng ban --
+                  if departments && departments.length
+                    each dept in departments
+                      option(value=dept.name selected=emp.department===dept.name) #{dept.name}
+                  else
+                    option(value=emp.department selected) #{emp.department}
               .form-group
                 label Chức vụ
-                input(type="text" name="role" value=emp.role placeholder="Ví dụ: Developer, Trưởng phòng...")
+                select(name="role")
+                  option(value="" disabled selected=!emp.role) -- Chọn chức vụ --
+                  if positions && positions.length
+                    each pos in positions
+                      option(value=pos.posName selected=emp.role===pos.posName) #{pos.posName}
+                  else
+                    option(value=emp.role selected) #{emp.role}
 
             .form-row
               .form-group

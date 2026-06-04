@@ -77,9 +77,12 @@ html
 
     main.main-content
       header.topbar
-        .search-bar
+        form.search-bar(method="GET", action="/contracts")
           i.fas.fa-search
-          input(type="text" placeholder="Tìm kiếm hợp đồng...")
+          input(type="text", name="keyword", value=searchKeyword || '', placeholder="Tìm theo mã hợp đồng...")
+          button(type="submit", style="border: none; background: var(--primary); color: white; padding: 8px 14px; border-radius: 8px; cursor: pointer;") Tìm
+          if searchKeyword
+            a(href="/contracts", style="color: var(--text-secondary); text-decoration: none; font-weight: 600;") Xóa
         .user-info
           span.welcome Xin chào, 
             strong #{user.username}
@@ -117,7 +120,7 @@ html
                         a.btn-delete(href=`/contracts/delete/${c._id}`, onclick="return confirm('Xác nhận xóa?')", style="margin-left: 5px;") Xóa
               else
                 tr
-                  td(colspan=user.role === 'admin' ? "5" : "4", style="text-align: center; padding: 20px;") Chưa có hợp đồng nào
+                  td(colspan=user.role === 'admin' ? "5" : "4", style="text-align: center; padding: 20px;")= searchKeyword ? 'Không tìm thấy hợp đồng phù hợp' : 'Chưa có hợp đồng nào'
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {

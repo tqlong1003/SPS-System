@@ -76,9 +76,12 @@ html
 
     main.main-content
       header.topbar
-        .search-bar
+        form.search-bar(method="GET", action="/positions")
           i.fas.fa-search
-          input(type="text" placeholder="Tìm kiếm chức vụ...")
+          input(type="text", name="keyword", value=searchKeyword || '', placeholder="Tìm theo mã hoặc tên chức vụ...")
+          button(type="submit", style="border: none; background: var(--primary); color: white; padding: 8px 14px; border-radius: 8px; cursor: pointer;") Tìm
+          if searchKeyword
+            a(href="/positions", style="color: var(--text-secondary); text-decoration: none; font-weight: 600;") Xóa
         .user-info
           span.welcome Xin chào, 
             strong #{user.username}
@@ -100,6 +103,7 @@ html
               tr
                 th Mã chức vụ
                 th Tên chức vụ
+                th(style="text-align: center;") Số nhân sự
                 if user.role === 'admin'
                   th Thao tác
             tbody
@@ -108,13 +112,17 @@ html
                   tr
                     td(style="font-weight: bold;")= pos.posCode
                     td= pos.posName
+                    td(style="text-align: center;")
+                      a(href=`/positions/${pos._id}/employees` style="display: inline-flex; align-items: center; gap: 6px; background: #e8f4fd; color: #1a73e8; padding: 4px 12px; border-radius: 20px; font-weight: 600; text-decoration: none; font-size: 0.92em;")
+                        i.fas.fa-users(style="font-size: 0.85em;")
+                        span= Number(pos.employeeCount || 0) + ' người'
                     if user.role === 'admin'
                       td
                         a.btn-edit(href=`/positions/edit/${pos._id}`) Sửa
                         a.btn-delete(href=`/positions/delete/${pos._id}`, onclick="return confirm('Xóa chức vụ này?')", style="margin-left: 5px;") Xóa
               else
                 tr
-                  td(colspan=user.role === 'admin' ? "3" : "2", style="text-align: center; padding: 20px;") Chưa có dữ liệu chức vụ
+                  td(colspan=user.role === 'admin' ? "4" : "3", style="text-align: center; padding: 20px;")= searchKeyword ? 'Không tìm thấy chức vụ phù hợp' : 'Chưa có dữ liệu chức vụ'
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {

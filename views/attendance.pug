@@ -170,6 +170,12 @@ html
               else
                 | Mở camera, chụp ảnh rồi bấm check-in. Hệ thống sẽ gửi kèm GPS hiện tại để xác thực vị trí.
 
+            p#gpsAccuracyStatus(style="margin-top: 8px; color: #64748b; font-size: 0.95rem;")
+              if todayAttendance && todayAttendance.location && todayAttendance.location.accuracy
+                | Độ chính xác GPS lần check-in gần nhất: #{Math.round(todayAttendance.location.accuracy)} m
+              else
+                | Độ chính xác GPS sẽ hiển thị sau khi thiết bị lấy được vị trí hiện tại.
+
         else
           div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #fff7ed; color: #9a3412; font-weight: 600;")
             | Tài khoản này chưa được liên kết với hồ sơ nhân viên, nên chưa thể check-in/check-out tự động.
@@ -248,6 +254,7 @@ html
       const openCameraButton = document.getElementById('openCameraButton');
       const capturePhotoButton = document.getElementById('capturePhotoButton');
       const retakePhotoButton = document.getElementById('retakePhotoButton');
+      const gpsAccuracyStatus = document.getElementById('gpsAccuracyStatus');
       const cameraPreview = document.getElementById('cameraPreview');
       const capturedPreview = document.getElementById('capturedPreview');
       const captureCanvas = document.getElementById('captureCanvas');
@@ -360,6 +367,12 @@ html
               document.getElementById('latitude').value = position.coords.latitude;
               document.getElementById('longitude').value = position.coords.longitude;
               document.getElementById('accuracy').value = position.coords.accuracy || '';
+              if (gpsAccuracyStatus) {
+                const roundedAccuracy = Math.round(position.coords.accuracy || 0);
+                gpsAccuracyStatus.textContent = roundedAccuracy > 0
+                  ? `Độ chính xác GPS hiện tại: ${roundedAccuracy} m.`
+                  : 'Thiết bị đã trả về vị trí nhưng không có chỉ số accuracy rõ ràng.';
+              }
               gpsStatus.textContent = 'Đã lấy được GPS, đang gửi check-in...';
               checkinForm.submit();
             },
@@ -371,6 +384,9 @@ html
               };
 
               gpsStatus.textContent = messages[error.code] || 'Không thể lấy GPS từ thiết bị.';
+              if (gpsAccuracyStatus) {
+                gpsAccuracyStatus.textContent = 'Chưa lấy được GPS nên chưa có chỉ số độ chính xác.';
+              }
               checkinButton.disabled = false;
             },
             {

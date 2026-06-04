@@ -1,38 +1,33 @@
 doctype html
 html
   head
-    title Quản lý nhân viên - HRM System
+    title Nhân sự chức vụ #{pos.posName} - HRM System
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
   body.dashboard-body
-    // Sidebar bên trái
     nav.sidebar
       .sidebar-header
         i.fas.fa-bolt
         span SPS System
       
       .sidebar-menu
-        // --- TỔNG QUAN ---
         .menu-group
-          //- BỎ class .active để menu ở trạng thái đóng mặc định
           a.menu-item.has-submenu(href="#")
             span
               i.fas.fa-th-large
               span Tổng quan
             i.fas.fa-chevron-down.toggle-icon
-          //- BỎ class .show để submenu ẩn đi lúc ban đầu
           .submenu
             a.submenu-item(href="/dashboard") Thống kê
             a.submenu-item(href="/employees") #{user.role === 'admin' ? 'Danh sách nhân viên' : 'Thông tin cá nhân'}
 
-        // --- NHÂN VIÊN ---
         .menu-group
-          a.menu-item.has-submenu(href="#")
+          a.menu-item.has-submenu.active(href="#")
             span
               i.fas.fa-users
               span Nhân viên
             i.fas.fa-chevron-down.toggle-icon
-          .submenu
+          .submenu.show
             a.submenu-item(href="/attendance") Chấm công
             a.submenu-item(href="/contracts") Hợp đồng
             if user.role === 'admin'
@@ -42,7 +37,6 @@ html
             else
               a.submenu-item(href="/employees") Thông tin cá nhân
 
-        // --- QUẢN LÝ LƯƠNG ---
         .menu-group
           a.menu-item.has-submenu(href="#")
             span
@@ -56,10 +50,6 @@ html
             else
               a.submenu-item(href="/salary") Phiếu lương của tôi
 
-
-        
-
-        // --- TÀI KHOẢN ---
         .menu-group
           a.menu-item.has-submenu(href="#")
             span
@@ -74,15 +64,11 @@ html
             a.submenu-item(href="/change-password") Đổi mật khẩu
             a.submenu-item(href="/logout") Đăng xuất
 
-
     main.main-content
       header.topbar
-        form.search-bar(method="GET", action="/employees")
+        .search-bar
           i.fas.fa-search
-          input(type="text", name="keyword", value=searchKeyword || '', placeholder="Tìm theo tên hoặc mã nhân viên...")
-          button(type="submit", style="border: none; background: var(--primary); color: white; padding: 8px 14px; border-radius: 8px; cursor: pointer;") Tìm
-          if searchKeyword
-            a(href="/employees", style="color: var(--text-secondary); text-decoration: none; font-weight: 600;") Xóa
+          input(type="text" id="searchInput" placeholder="Tìm kiếm nhân sự theo chức vụ...")
         .user-info
           span.welcome Xin chào, 
             strong #{user.username}
@@ -90,39 +76,58 @@ html
 
       .content-wrapper
         .welcome-banner
-          h1 👨‍💼 Quản lý nhân viên
-          p Danh sách và chi tiết lý lịch hồ sơ toàn bộ nhân sự trong hệ thống
+          h1 💼 Chức vụ #{pos.posName}
+          p
+            | Mã chức vụ: 
+            strong #{pos.posCode || 'Chưa cập nhật'}
+            |  &nbsp;·&nbsp; Tổng số: 
+            strong #{employees.length} nhân sự
 
-        .table-container
-          table
-            thead
-              tr
-                th Mã nhân viên
-                th Tên nhân viên
-                th Chức vụ
-                th Phòng ban
-                th Hành động
-            tbody
-              if employees && employees.length > 0
-                each emp in employees
-                  tr
-                    td(style="font-weight: bold;")= emp.employeeCode || emp.code || emp.maNV || 'Chưa có mã'
-                    td(style="font-weight: bold;")= emp.name
-                    td= emp.role
-                    td= emp.department
-                    td
-                      // Nút Xem chi tiết áp dụng cho tất cả các phân quyền tài khoản
-                      a.btn-edit(href=`/employees/detail/${emp._id}`, style="background: var(--primary); margin-right: 5px; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") 
-                        i.fas.fa-eye(style="margin-right: 4px;")
-                        
-                      
-                      // Chỉ hiển thị Sửa/Xóa đối với tài khoản Admin
-                      if user.role === 'admin'
-                        a.btn-edit(href=`/employees/edit/${emp._id}`, style="padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") Sửa
-                        a.btn-delete(href=`/employees/delete/${emp._id}`, onclick="return confirm('Bạn có chắc chắn muốn xóa nhân viên này?')", style="margin-left: 5px; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") Xóa
-              else
+        a.btn(href="/positions" style="display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; text-decoration: none;")
+          i.fas.fa-arrow-left
+          |  Quay lại danh sách chức vụ
+
+        if employees && employees.length > 0
+          .table-container
+            table#empTable
+              thead
                 tr
-                  td(colspan="5", style="text-align: center; padding: 20px;")= searchKeyword ? 'Không tìm thấy nhân viên phù hợp' : 'Chưa có dữ liệu nhân viên'
+                  th STT
+                  th Mã NV
+                  th Họ và tên
+                  th Phòng ban
+                  th Trạng thái
+                  th Hành động
+              tbody
+                each emp, index in employees
+                  tr
+                    td(style="text-align: center; color: #888;")= index + 1
+                    td
+                      span(style="font-family: monospace; background: #f0f4ff; color: #3b4cca; padding: 2px 8px; border-radius: 4px; font-size: 0.9em;")= emp.employeeCode || 'Chưa có'
+                    td(style="font-weight: 600;")
+                      if emp.avatar
+                        img(src=emp.avatar alt="avatar" style="width: 30px; height: 30px; border-radius: 50%; object-fit: cover; margin-right: 8px; vertical-align: middle;")
+                      else
+                        span(style="display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #d1e3ff; color: #1a73e8; font-weight: bold; font-size: 0.85em; margin-right: 8px; vertical-align: middle;")= emp.name ? emp.name.charAt(0).toUpperCase() : '?'
+                      = emp.name || 'Chưa cập nhật'
+                    td= emp.department || 'Chưa cập nhật'
+                    td
+                      if emp.status === 'Đang làm việc'
+                        span(style="background: #e6f4ea; color: #137333; padding: 3px 10px; border-radius: 12px; font-size: 0.85em; font-weight: 600;")
+                          i.fas.fa-circle(style="font-size: 0.6em; margin-right: 4px;")
+                          = emp.status
+                      else
+                        span(style="background: #fce8e6; color: #c5221f; padding: 3px 10px; border-radius: 12px; font-size: 0.85em; font-weight: 600;")
+                          = emp.status || 'Không rõ'
+                    td
+                      a.btn-edit(href=`/employees/detail/${emp._id}` style="text-decoration: none;")
+                        i.fas.fa-eye(style="margin-right: 4px;")
+                        | Xem
+        else
+          .table-container
+            p(style="text-align: center; padding: 40px; color: #999;")
+              i.fas.fa-user-slash(style="font-size: 2em; display: block; margin-bottom: 10px;")
+              | Chức vụ này chưa có nhân sự nào
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
@@ -142,5 +147,13 @@ html
 
           submenu.classList.toggle('show');
           toggleIcon.classList.toggle('rotate');
+        });
+      });
+
+      document.getElementById('searchInput').addEventListener('input', function() {
+        const keyword = this.value.toLowerCase();
+        document.querySelectorAll('#empTable tbody tr').forEach(row => {
+          const text = row.innerText.toLowerCase();
+          row.style.display = text.includes(keyword) ? '' : 'none';
         });
       });

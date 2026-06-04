@@ -10,8 +10,8 @@ const { ObjectId } = require('mongodb')
 // Có thể đổi trực tiếp giá trị mặc định bên dưới hoặc truyền qua biến môi trường COMPANY_LATITUDE, COMPANY_LONGITUDE, ATTENDANCE_RADIUS_METERS.
 const ATTENDANCE_SETTINGS = {
   companyName: process.env.COMPANY_NAME || 'SPS System',
-  companyLatitude: Number(process.env.COMPANY_LATITUDE || '21.00351'),
-  companyLongitude: Number(process.env.COMPANY_LONGITUDE || '105.93781'),
+  companyLatitude: Number(process.env.COMPANY_LATITUDE || '21.003649'),
+  companyLongitude: Number(process.env.COMPANY_LONGITUDE || '105.938336'),
   allowedRadiusMeters: Number(process.env.ATTENDANCE_RADIUS_METERS || '150')
 }
 
@@ -123,6 +123,24 @@ function normalizeObjectId(value) {
   }
 
   return null
+}
+
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function buildContainsRegex(value) {
+  const normalizedValue = String(value || '').trim()
+
+  if (!normalizedValue) {
+    return null
+  }
+
+  return new RegExp(escapeRegex(normalizedValue), 'i')
+}
+
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase()
 }
 
 function getWorkDate(value = new Date()) {
@@ -446,6 +464,9 @@ fastify.get('/accounts', { preHandler: [auth, isAdmin] }, async (req, reply) => 
 // - admin: xem danh sách, thêm, sửa, xóa toàn bộ hồ sơ.
 // - user: không xem danh sách chung, vào /employees sẽ bị chuyển sang hồ sơ cá nhân.
 fastify.get('/employees', { preHandler: [auth] }, async (req, reply) => {
+  const searchKeyword = String(req.query.keyword || '').trim()
+  const searchRegex = buildContainsRegex(searchKeyword)
+
   if (req.user.role !== 'admin') {
     const employee = await findEmployeeByUserId(req.user.id, req.user.username)
 
@@ -456,10 +477,25 @@ fastify.get('/employees', { preHandler: [auth] }, async (req, reply) => {
     return reply.redirect(`/employees/detail/${employee._id}`)
   }
 
-  const employees = await fastify.mongo.db.collection('employees').find({
+  const employeeFilter = {
     employeeCode: { $exists: true, $ne: '' }
-  }).toArray()
-  return reply.view('employees.pug', { employees, user: req.user })
+  }
+
+  if (searchRegex) {
+    employeeFilter.$or = [
+      { name: searchRegex },
+      { employeeCode: searchRegex },
+      { code: searchRegex },
+      { maNV: searchRegex }
+    ]
+  }
+
+  const employees = await fastify.mongo.db.collection('employees')
+    .find(employeeFilter)
+    .sort({ name: 1 })
+    .toArray()
+
+  return reply.view('employees.pug', { employees, user: req.user, searchKeyword })
 })
 
 
@@ -892,7 +928,16 @@ fastify.get('/attendance/delete/:id', { preHandler: [auth, isAdmin] }, async (re
 // Đây là nhóm master data nội bộ.
 // Hiện đã khóa admin-only để user không xem cấu hình tổ chức của toàn công ty.
 fastify.get('/departments', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const departments = await fastify.mongo.db.collection('departments').find().toArray()
+  const searchKeyword = String(req.query.keyword || '').trim()
+  const searchRegex = buildContainsRegex(searchKeyword)
+  const departmentFilter = searchRegex
+    ? { name: searchRegex }
+    : {}
+
+  const departments = await fastify.mongo.db.collection('departments')
+    .find(departmentFilter)
+    .sort({ name: 1 })
+    .toArray()
 
   // Đếm số nhân viên trong từng phòng ban
   const employeeCountByDept = await fastify.mongo.db.collection('employees').aggregate([
@@ -907,7 +952,7 @@ fastify.get('/departments', { preHandler: [auth, isAdmin] }, async (req, reply) 
     employeeCount: countMap.get(dept.name) || 0
   }))
 
-  return reply.view('departments.pug', { departments: departmentsWithCount, user: req.user })
+  return reply.view('departments.pug', { departments: departmentsWithCount, user: req.user, searchKeyword })
 })
 
 // Xem danh sách nhân viên theo phòng ban
@@ -955,8 +1000,54 @@ fastify.get('/departments/delete/:id', { preHandler: [auth, isAdmin] }, async (r
 // ================= QUẢN LÝ CHỨC VỤ =================
 // Tương tự phòng ban: CRUD đơn giản, ít phụ thuộc, rất phù hợp tách file riêng nếu cần refactor.
 fastify.get('/positions', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const positions = await fastify.mongo.db.collection('positions').find().toArray()
-  return reply.view('positions.pug', { positions, user: req.user })
+  const searchKeyword = String(req.query.keyword || '').trim()
+  const searchRegex = buildContainsRegex(searchKeyword)
+  const positionFilter = searchRegex
+    ? {
+        $or: [
+          { posCode: searchRegex },
+          { posName: searchRegex },
+          { code: searchRegex },
+          { name: searchRegex }
+        ]
+      }
+    : {}
+
+  const positions = await fastify.mongo.db.collection('positions')
+    .find(positionFilter)
+    .sort({ posName: 1 })
+    .toArray()
+
+  const employeeCountByPosition = await fastify.mongo.db.collection('employees').aggregate([
+    { $match: { employeeCode: { $exists: true, $ne: '' } } },
+    { $group: { _id: '$role', count: { $sum: 1 } } }
+  ]).toArray()
+
+  const countMap = new Map(
+    employeeCountByPosition.map(item => [normalizeText(item._id), Number(item.count || 0)])
+  )
+
+  const positionsWithCount = positions.map(position => ({
+    ...position,
+    employeeCount: countMap.get(normalizeText(position.posName || position.name)) || 0
+  }))
+
+  return reply.view('positions.pug', { positions: positionsWithCount, user: req.user, searchKeyword })
+})
+
+fastify.get('/positions/:id/employees', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const pos = await fastify.mongo.db.collection('positions').findOne({ _id: new ObjectId(req.params.id) })
+
+  if (!pos) {
+    return reply.status(404).send('❌ Không tìm thấy chức vụ')
+  }
+
+  const employees = await fastify.mongo.db.collection('employees').find({
+    role: pos.posName,
+    employeeCode: { $exists: true, $ne: '' }
+  }).sort({ name: 1 }).toArray()
+
+  return reply.view('position_employees.pug', { pos, employees, user: req.user })
 })
 
 fastify.get('/positions/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
@@ -1335,11 +1426,20 @@ fastify.post('/salary/provisional/approve-all', { preHandler: [auth, isAdmin] },
 // - user: chỉ xem hợp đồng gắn với employee của mình, không có quyền sửa.
 // ================= QUẢN LÝ HỢP ĐỒNG =================
 fastify.get('/contracts', { preHandler: [auth] }, async (req, reply) => {
+  const searchKeyword = String(req.query.keyword || '').trim()
+  const searchRegex = buildContainsRegex(searchKeyword)
   let contracts = [];
 
   if (req.user.role === 'admin') {
     // Admin vẫn xem được toàn bộ
-    contracts = await fastify.mongo.db.collection('contracts').find().toArray();
+    const contractFilter = searchRegex
+      ? { contractNumber: searchRegex }
+      : {}
+
+    contracts = await fastify.mongo.db.collection('contracts')
+      .find(contractFilter)
+      .sort({ createdAt: -1, signDate: -1 })
+      .toArray();
   } else {
     // Tìm hồ sơ nhân viên
     const employee = await findEmployeeByUserId(req.user.id, req.user.username);
@@ -1353,13 +1453,15 @@ fastify.get('/contracts', { preHandler: [auth] }, async (req, reply) => {
         );
       
       // Nếu có hợp đồng thì đưa vào mảng để template hiển thị đúng cấu trúc cũ
-      contracts = latestContract ? [latestContract] : [];
+      contracts = latestContract && (!searchRegex || searchRegex.test(String(latestContract.contractNumber || '')))
+        ? [latestContract]
+        : [];
     } else {
       contracts = [];
     }
   }
 
-  return reply.view('contracts.pug', { contracts, user: req.user });
+  return reply.view('contracts.pug', { contracts, user: req.user, searchKeyword });
 });
 
 fastify.get('/contracts/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {

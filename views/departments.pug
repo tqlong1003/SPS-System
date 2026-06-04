@@ -78,9 +78,12 @@ html
 
     main.main-content
       header.topbar
-        .search-bar
+        form.search-bar(method="GET", action="/departments")
           i.fas.fa-search
-          input(type="text" placeholder="Tìm kiếm phòng ban...")
+          input(type="text", name="keyword", value=searchKeyword || '', placeholder="Tìm theo tên phòng ban...")
+          button(type="submit", style="border: none; background: var(--primary); color: white; padding: 8px 14px; border-radius: 8px; cursor: pointer;") Tìm
+          if searchKeyword
+            a(href="/departments", style="color: var(--text-secondary); text-decoration: none; font-weight: 600;") Xóa
         .user-info
           span.welcome Xin chào, 
             strong #{user.username}
@@ -121,7 +124,7 @@ html
                         a.btn-delete(href=`/departments/delete/${dept._id}` style="margin-left: 5px;") Xóa
               else
                 tr
-                  td(colspan=user.role === 'admin' ? "4" : "3", style="text-align: center; padding: 20px;") Chưa có dữ liệu phòng ban
+                  td(colspan=user.role === 'admin' ? "4" : "3", style="text-align: center; padding: 20px;")= searchKeyword ? 'Không tìm thấy phòng ban phù hợp' : 'Chưa có dữ liệu phòng ban'
 
     script.
       document.querySelectorAll('.menu-item.has-submenu').forEach(item => {

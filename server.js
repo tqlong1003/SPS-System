@@ -10,8 +10,8 @@ const { ObjectId } = require('mongodb')
 // Có thể đổi trực tiếp giá trị mặc định bên dưới hoặc truyền qua biến môi trường COMPANY_LATITUDE, COMPANY_LONGITUDE, ATTENDANCE_RADIUS_METERS.
 const ATTENDANCE_SETTINGS = {
   companyName: process.env.COMPANY_NAME || 'SPS System',
-  companyLatitude: Number(process.env.COMPANY_LATITUDE || '21.003649'),
-  companyLongitude: Number(process.env.COMPANY_LONGITUDE || '105.938336'),
+  companyLatitude: Number(process.env.COMPANY_LATITUDE || '21.010780'),
+  companyLongitude: Number(process.env.COMPANY_LONGITUDE || '105.937622'),
   allowedRadiusMeters: Number(process.env.ATTENDANCE_RADIUS_METERS || '150')
 }
 
@@ -671,6 +671,9 @@ fastify.get('/attendance', { preHandler: [auth] }, async (req, reply) => {
   const workDate = getWorkDate()
   const searchKeyword = typeof req.query.keyword === 'string' ? req.query.keyword.trim() : ''
   const searchRegex = buildContainsRegex(searchKeyword)
+  const selectedMonth = typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month.trim())
+    ? req.query.month.trim()
+    : ''
   const selectedEmployeeId = req.user.role === 'admin'
     ? normalizeObjectId(req.query.employeeId)
     : employee?._id || null
@@ -687,9 +690,13 @@ fastify.get('/attendance', { preHandler: [auth] }, async (req, reply) => {
     .toArray()
 
   const enrichedAttendance = await enrichAttendanceRecords(attendanceRecords)
+  const monthFilteredAttendance = selectedMonth
+    ? enrichedAttendance.filter(record => String(record.workDate || '').startsWith(selectedMonth))
+    : enrichedAttendance
+
   const attendancePeople = req.user.role === 'admin'
     ? [...new Map(
-      enrichedAttendance
+      monthFilteredAttendance
         .filter(record => record.employeeId)
         .map(record => {
           const employeeKey = record.employeeId.toString()
@@ -702,7 +709,7 @@ fastify.get('/attendance', { preHandler: [auth] }, async (req, reply) => {
     ).values()]
         .map(person => ({
           ...person,
-          totalDays: enrichedAttendance.filter(record => record.employeeId?.toString() === person.employeeId).length
+          totalDays: monthFilteredAttendance.filter(record => record.employeeId?.toString() === person.employeeId).length
         }))
         .sort((left, right) => left.employeeName.localeCompare(right.employeeName, 'vi'))
     : []
@@ -711,7 +718,7 @@ fastify.get('/attendance', { preHandler: [auth] }, async (req, reply) => {
     ? attendancePeople.filter(person => searchRegex.test(person.employeeName || ''))
     : attendancePeople
 
-  const filteredAttendance = enrichedAttendance.filter(record => {
+  const filteredAttendance = monthFilteredAttendance.filter(record => {
     const matchesEmployee = selectedEmployeeId
       ? record.employeeId?.toString() === selectedEmployeeId.toString()
       : true
@@ -735,6 +742,7 @@ fastify.get('/attendance', { preHandler: [auth] }, async (req, reply) => {
     attendancePeople: searchedAttendancePeople,
     selectedAttendancePerson,
     searchKeyword,
+    selectedMonth,
     user: req.user,
     employee,
     todayAttendance,

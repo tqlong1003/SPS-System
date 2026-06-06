@@ -477,6 +477,121 @@ tr:hover {
   color: #6b7280;
 }
 
+/* ================= ATTENDANCE TOOLBAR ================= */
+.attendance-toolbar {
+  display: block;
+  margin-bottom: 20px;
+}
+
+.attendance-add-btn {
+  width: auto;
+  margin: 0;
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 10px;
+  text-decoration: none;
+  min-height: 44px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.attendance-filter-card {
+  background: white;
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 22px 24px;
+}
+
+.attendance-filter-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 1.8rem;
+}
+
+.attendance-filter-form {
+  display: flex;
+  align-items: end;
+  gap: 16px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+}
+
+.attendance-filter-field {
+  flex: 0 1 360px;
+  max-width: 360px;
+}
+
+.attendance-filter-field label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #4b5563;
+}
+
+.attendance-filter-field input {
+  margin: 0;
+  max-width: 360px;
+}
+
+.attendance-filter-actions {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.attendance-filter-form .btn-add,
+.attendance-filter-form .btn-cancel {
+  width: auto;
+  margin: 0;
+  min-height: 44px;
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  text-decoration: none;
+  border-radius: 10px;
+}
+
+@media (max-width: 900px) {
+  .attendance-filter-form {
+    flex-wrap: wrap;
+  }
+
+  .attendance-filter-field {
+    flex-basis: 100%;
+  }
+
+  .attendance-filter-actions {
+    width: 100%;
+  }
+
+  .attendance-add-btn,
+  .attendance-filter-form .btn-add,
+  .attendance-filter-form .btn-cancel {
+    flex: 1 1 180px;
+  }
+
+  .attendance-filter-form .btn-add,
+  .attendance-filter-form .btn-cancel {
+    justify-content: center;
+  }
+}
+
 .stat-info h2 {
   font-size: 1.4rem;
 }

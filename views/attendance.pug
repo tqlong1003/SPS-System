@@ -191,9 +191,31 @@ html
             | Tài khoản này chưa được liên kết với hồ sơ nhân viên, nên chưa thể check-in/check-out tự động.
 
         if user.role === 'admin'
-          a.btn(href="/attendance/add" style="display: inline-block; margin-bottom: 15px; text-decoration: none;")
-            i.fas.fa-plus
-            |  Thêm chấm công thủ công
+          .attendance-toolbar
+            .attendance-filter-card
+              .attendance-filter-header
+                i.fas.fa-calendar-alt
+                span Lọc chấm công theo tháng
+
+              form.attendance-filter-form(method="GET" action="/attendance")
+                if selectedAttendancePerson
+                  input(type="hidden" name="employeeId" value=selectedAttendancePerson.employeeId)
+                if searchKeyword
+                  input(type="hidden" name="keyword" value=searchKeyword)
+                .attendance-filter-field
+                  label(for="attendanceMonth") Chọn tháng xem chấm công
+                  input#attendanceMonth(type="month" name="month" value=selectedMonth)
+                .attendance-filter-actions
+                  button.btn-add(type="submit")
+                    i.fas.fa-filter
+                    | Lọc tháng
+                  if selectedMonth
+                    a.btn-cancel(href=selectedAttendancePerson ? `/attendance?employeeId=${selectedAttendancePerson.employeeId}${searchKeyword ? `&keyword=${encodeURIComponent(searchKeyword)}` : ''}` : searchKeyword ? `/attendance?keyword=${encodeURIComponent(searchKeyword)}` : '/attendance')
+                      i.fas.fa-undo
+                      | Xóa
+                  a.btn.attendance-add-btn(href="/attendance/add")
+                    i.fas.fa-plus
+                    | Thêm chấm công thủ công
 
         if user.role === 'admin' && attendancePeople && attendancePeople.length > 0
           .card-form(style="max-width: 100%; margin-bottom: 20px; padding: 24px;")
@@ -202,18 +224,22 @@ html
               h2 Danh sách nhân viên đã chấm công
             div(style="display: flex; flex-wrap: wrap; gap: 12px;")
               each person in attendancePeople
-                a(href=`/attendance?employeeId=${person.employeeId}` style=`display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 999px; text-decoration: none; font-weight: 600; border: 1px solid #cbd5e1; background: ${selectedAttendancePerson && selectedAttendancePerson.employeeId === person.employeeId ? 'var(--primary)' : '#ffffff'}; color: ${selectedAttendancePerson && selectedAttendancePerson.employeeId === person.employeeId ? '#ffffff' : '#334155'}; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);`)
+                a(href=`/attendance?employeeId=${person.employeeId}${searchKeyword ? `&keyword=${encodeURIComponent(searchKeyword)}` : ''}${selectedMonth ? `&month=${selectedMonth}` : ''}` style=`display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 999px; text-decoration: none; font-weight: 600; border: 1px solid #cbd5e1; background: ${selectedAttendancePerson && selectedAttendancePerson.employeeId === person.employeeId ? 'var(--primary)' : '#ffffff'}; color: ${selectedAttendancePerson && selectedAttendancePerson.employeeId === person.employeeId ? '#ffffff' : '#334155'}; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);`)
                   i.fas.fa-user-check
                   span #{person.employeeName}
                   span(style=`padding: 2px 8px; border-radius: 999px; font-size: 0.85rem; background: ${selectedAttendancePerson && selectedAttendancePerson.employeeId === person.employeeId ? 'rgba(255,255,255,0.2)' : '#eef2ff'}; color: inherit;`) #{person.totalDays} ngày
               if selectedAttendancePerson
-                a(href="/attendance" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 999px; text-decoration: none; font-weight: 600; border: 1px dashed #94a3b8; color: #475569; background: #f8fafc;")
+                a(href=`/attendance${searchKeyword || selectedMonth ? '?' : ''}${searchKeyword ? `keyword=${encodeURIComponent(searchKeyword)}` : ''}${searchKeyword && selectedMonth ? '&' : ''}${selectedMonth ? `month=${selectedMonth}` : ''}` style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 999px; text-decoration: none; font-weight: 600; border: 1px dashed #94a3b8; color: #475569; background: #f8fafc;")
                   i.fas.fa-rotate-left
                   span Xem tất cả
 
         if selectedAttendancePerson
           div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #eef2ff; color: #3730a3; font-weight: 600;")
             | Đang hiển thị lịch sử chấm công theo ngày của nhân viên: #{selectedAttendancePerson.employeeName}
+
+        if selectedMonth
+          div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #eff6ff; color: #1d4ed8; font-weight: 600;")
+            | Đang lọc chấm công theo tháng: #{selectedMonth}
 
         .table-container
           table
@@ -234,7 +260,7 @@ html
                   tr
                     td
                       if user.role === 'admin'
-                        a(href=`/attendance?employeeId=${record.employeeId}` style="font-weight: 600; color: var(--primary); text-decoration: none;")= record.employeeName
+                        a(href=`/attendance?employeeId=${record.employeeId}${searchKeyword ? `&keyword=${encodeURIComponent(searchKeyword)}` : ''}${selectedMonth ? `&month=${selectedMonth}` : ''}` style="font-weight: 600; color: var(--primary); text-decoration: none;")= record.employeeName
                       else
                         = record.employeeName
                     td= record.workDate

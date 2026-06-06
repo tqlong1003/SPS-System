@@ -94,7 +94,8 @@ html
           p= user.role === 'admin' ? 'Danh sách thông tin và thời hạn các hợp đồng lao động' : 'Thông tin hợp đồng lao động của bạn'
 
         if user.role === 'admin'
-          a.btn(href="/contracts/add" style="display: inline-block; margin-bottom: 15px; text-decoration: none;") ➕ Thêm hợp đồng
+          a.btn-add(href="/contracts/add" style="margin-bottom: 15px;")
+            | ➕ Thêm hợp đồng
         
         .table-container
           table

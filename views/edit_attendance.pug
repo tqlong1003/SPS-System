@@ -6,76 +6,9 @@ html
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
   body.dashboard-body
     // Sidebar bên trái
-    nav.sidebar
-      .sidebar-header
-        i.fas.fa-bolt
-        span SPS System
-      
-      .sidebar-menu
-        // --- TỔNG QUAN ---
-        .menu-group
-          //- BỎ class .active để menu ở trạng thái đóng mặc định
-          a.menu-item.has-submenu(href="#")
-            span
-              i.fas.fa-th-large
-              span Tổng quan
-            i.fas.fa-chevron-down.toggle-icon
-          //- BỎ class .show để submenu ẩn đi lúc ban đầu
-          .submenu
-            a.submenu-item(href="/dashboard") Thống kê
-            a.submenu-item(href="/employees") #{user.role === 'admin' ? 'Danh sách nhân viên' : 'Thông tin cá nhân'}
+    include sidebar.pug
 
-        // --- NHÂN VIÊN ---
-        .menu-group
-          a.menu-item.has-submenu(href="#")
-            span
-              i.fas.fa-users
-              span Nhân viên
-            i.fas.fa-chevron-down.toggle-icon
-          .submenu
-            a.submenu-item(href="/attendance") Chấm công
-            a.submenu-item(href="/contracts") Hợp đồng
-            if user.role === 'admin'
-              a.submenu-item(href="/departments") Phòng ban
-              a.submenu-item(href="/positions") Chức vụ
-              a.submenu-item(href="/employees") Danh sách nhân viên
-            else
-              a.submenu-item(href="/employees") Thông tin cá nhân
-
-        // --- QUẢN LÝ LƯƠNG ---
-        .menu-group
-          a.menu-item.has-submenu(href="#")
-            span
-              i.fas.fa-file-invoice-dollar
-              span Quản lý lương
-            i.fas.fa-chevron-down.toggle-icon
-          .submenu
-            if user.role === 'admin'
-              a.submenu-item(href="/salary") Tính lương
-              a.submenu-item(href="/salary/provisional") Lương tạm tính 🌟
-            else
-              a.submenu-item(href="/salary") Phiếu lương của tôi
-
-
-
-        
-
-        // --- TÀI KHOẢN ---
-        .menu-group
-          a.menu-item.has-submenu(href="#")
-            span
-              i.fas.fa-user-cog
-              span Tài khoản
-            i.fas.fa-chevron-down.toggle-icon
-          .submenu
-            a.submenu-item(href="/profile") Thông tin tài khoản
-            if user.role === 'admin'
-              a.submenu-item(href="/accounts") Danh sách tài khoản
-              a.submenu-item(href="/register") Tạo tài khoản
-            a.submenu-item(href="/change-password") Đổi mật khẩu
-            a.submenu-item(href="/logout") Đăng xuất
-
-
+    // Khu vực nội dung bên phải
     main.main-content
       header.topbar
         .search-bar

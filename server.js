@@ -10,15 +10,15 @@ const { ObjectId } = require('mongodb')
 // Có thể đổi trực tiếp giá trị mặc định bên dưới hoặc truyền qua biến môi trường COMPANY_LATITUDE, COMPANY_LONGITUDE, ATTENDANCE_RADIUS_METERS.
 const ATTENDANCE_SETTINGS = {
   companyName: process.env.COMPANY_NAME || 'SPS System',
-  companyLatitude: Number(process.env.COMPANY_LATITUDE || '21.010780'),
-  companyLongitude: Number(process.env.COMPANY_LONGITUDE || '105.937622'),
-  allowedRadiusMeters: Number(process.env.ATTENDANCE_RADIUS_METERS || '150')
+  companyLatitude: Number(process.env.COMPANY_LATITUDE || '21.005765'),
+  companyLongitude: Number(process.env.COMPANY_LONGITUDE || '105.931857'),
+  allowedRadiusMeters: Number(process.env.ATTENDANCE_RADIUS_METERS || '400')
 }
 
 const STANDARD_WORK_DAYS = 26
 
-function calculateSalaryByAttendance(baseSalary, attendanceDays, bonus, advance) {
-  return Math.round((Number(baseSalary || 0) / STANDARD_WORK_DAYS) * Number(attendanceDays || 0) + Number(bonus || 0) - Number(advance || 0))
+function calculateSalaryByAttendance(hardSalary, attendanceDays, bonus, advance) {
+  return Math.round((Number(hardSalary || 0) / STANDARD_WORK_DAYS) * Number(attendanceDays || 0) + Number(bonus || 0) - Number(advance || 0))
 }
 
 
@@ -94,17 +94,18 @@ function toRadians(value) {
   return (value * Math.PI) / 180
 }
 
+//Hàm tính khoảng cách giữa 2 điểm GPS (từ vị trí check-in của nhân viên đến tọa độ công ty) theo công thức Haversine.
 function calculateDistanceMeters(fromLatitude, fromLongitude, toLatitude, toLongitude) {
   const earthRadiusMeters = 6371000
   const latitudeDelta = toRadians(toLatitude - fromLatitude)
   const longitudeDelta = toRadians(toLongitude - fromLongitude)
-
+  // Công thức Haversine
   const a = Math.sin(latitudeDelta / 2) * Math.sin(latitudeDelta / 2)
     + Math.cos(toRadians(fromLatitude))
     * Math.cos(toRadians(toLatitude))
     * Math.sin(longitudeDelta / 2)
     * Math.sin(longitudeDelta / 2)
-
+  // Tính khoảng cách cuối cùng
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   return Math.round(earthRadiusMeters * c)
 }
@@ -151,6 +152,61 @@ function getDateRangeForWorkDate(workDate) {
   const startDate = new Date(`${workDate}T00:00:00.000Z`)
   const endDate = new Date(`${workDate}T23:59:59.999Z`)
   return { startDate, endDate }
+}
+
+function parseContractEndDate(signDate, duration, contractType) {
+  const normalizedType = normalizeText(contractType)
+  const normalizedDuration = normalizeText(duration)
+
+  if (!signDate || Number.isNaN(new Date(signDate).getTime())) {
+    return null
+  }
+
+  if (normalizedType.includes('không xác định') || normalizedDuration.includes('không xác định')) {
+    return null
+  }
+
+  const endDate = new Date(`${signDate}T00:00:00.000Z`)
+  const durationMatches = [...String(duration || '').matchAll(/(\d+)\s*(năm|nam|tháng|thang|th|thg|ngày|ngay|year|years|month|months|day|days)/gi)]
+
+  if (durationMatches.length === 0) {
+    return null
+  }
+
+  for (const [, amountText, unitText] of durationMatches) {
+    const amount = Number(amountText)
+    const unit = normalizeText(unitText)
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      continue
+    }
+
+    if (unit.includes('năm') || unit.includes('nam') || unit.includes('year')) {
+      endDate.setFullYear(endDate.getFullYear() + amount)
+      continue
+    }
+
+    if (unit.includes('tháng') || unit.includes('thang') || unit === 'th' || unit === 'thg' || unit.includes('month')) {
+      endDate.setMonth(endDate.getMonth() + amount)
+      continue
+    }
+
+    if (unit.includes('ngày') || unit.includes('ngay') || unit.includes('day')) {
+      endDate.setDate(endDate.getDate() + amount)
+    }
+  }
+
+  return Number.isNaN(endDate.getTime()) ? null : endDate
+}
+
+function calculateDaysUntil(targetDate, baseDate = new Date()) {
+  const startOfToday = new Date(baseDate)
+  startOfToday.setHours(0, 0, 0, 0)
+
+  const startOfTarget = new Date(targetDate)
+  startOfTarget.setHours(0, 0, 0, 0)
+
+  return Math.ceil((startOfTarget.getTime() - startOfToday.getTime()) / 86400000)
 }
 
 function buildAttendanceRedirect(reply, type, message) {
@@ -398,16 +454,44 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
   let dashboardStats = null
 
   if (req.user.role === 'admin') {
-    const [employeeCount, departmentCount, pendingSalaryCount] = await Promise.all([
+    const [employeeCount, departmentCount, pendingSalaryCount, contracts, employees] = await Promise.all([
       fastify.mongo.db.collection('employees').countDocuments({ employeeCode: { $exists: true, $ne: '' } }),
       fastify.mongo.db.collection('departments').countDocuments({}),
-      fastify.mongo.db.collection('provisional_salaries').countDocuments({ status: 'pending' })
+      fastify.mongo.db.collection('provisional_salaries').countDocuments({ status: 'pending' }),
+      fastify.mongo.db.collection('contracts').find().toArray(),
+      fastify.mongo.db.collection('employees').find({}, { projection: { name: 1 } }).toArray()
     ])
+
+    const employeeNameById = new Map(employees.map(employee => [employee._id.toString(), employee.name || 'Chưa rõ nhân viên']))
+    const expiringContracts = contracts
+      .map(contract => {
+        const endDate = parseContractEndDate(contract.signDate, contract.duration, contract.contractType)
+
+        if (!endDate) {
+          return null
+        }
+
+        const daysUntilExpiration = calculateDaysUntil(endDate)
+        if (daysUntilExpiration < 0 || daysUntilExpiration > 30) {
+          return null
+        }
+
+        return {
+          contractNumber: contract.contractNumber || 'Chưa có số hợp đồng',
+          employeeName: employeeNameById.get(String(contract.employeeId || '')) || 'Chưa rõ nhân viên',
+          expirationDate: endDate.toISOString().slice(0, 10),
+          daysUntilExpiration
+        }
+      })
+      .filter(Boolean)
+      .sort((left, right) => left.daysUntilExpiration - right.daysUntilExpiration)
 
     dashboardStats = {
       employeeCount,
       departmentCount,
-      pendingSalaryCount
+      pendingSalaryCount,
+      contractCount: contracts.length,
+      expiringContracts
     }
   }
 
@@ -693,7 +777,7 @@ fastify.get('/attendance', { preHandler: [auth] }, async (req, reply) => {
   const monthFilteredAttendance = selectedMonth
     ? enrichedAttendance.filter(record => String(record.workDate || '').startsWith(selectedMonth))
     : enrichedAttendance
-
+  // Dữ liệu attendancePeople dùng để hiển thị sidebar chọn nhân viên và thống kê số ngày chấm công trong tháng.
   const attendancePeople = req.user.role === 'admin'
     ? [...new Map(
       monthFilteredAttendance
@@ -811,7 +895,7 @@ fastify.post('/attendance/checkin', { preHandler: [auth] }, async (req, reply) =
       `Bạn đang cách công ty ${distanceMeters} m, vượt quá phạm vi cho phép ${ATTENDANCE_SETTINGS.allowedRadiusMeters} m.`
     )
   }
-
+  //Tạo dữ liệu chấm công 
   const now = new Date()
   const attendancePayload = {
     employeeId: employee._id,
@@ -1483,6 +1567,7 @@ fastify.post('/salary/provisional/approve-all', { preHandler: [auth, isAdmin] },
 fastify.get('/contracts', { preHandler: [auth] }, async (req, reply) => {
   const searchKeyword = String(req.query.keyword || '').trim()
   const searchRegex = buildContainsRegex(searchKeyword)
+  const showExpiringOnly = req.query.filter === 'expiring'
   let contracts = [];
 
   if (req.user.role === 'admin') {
@@ -1495,6 +1580,18 @@ fastify.get('/contracts', { preHandler: [auth] }, async (req, reply) => {
       .find(contractFilter)
       .sort({ createdAt: -1, signDate: -1 })
       .toArray();
+
+    if (showExpiringOnly) {
+      contracts = contracts.filter(contract => {
+        const endDate = parseContractEndDate(contract.signDate, contract.duration, contract.contractType)
+        if (!endDate) {
+          return false
+        }
+
+        const daysUntilExpiration = calculateDaysUntil(endDate)
+        return daysUntilExpiration >= 0 && daysUntilExpiration <= 30
+      })
+    }
   } else {
     // Tìm hồ sơ nhân viên
     const employee = await findEmployeeByUserId(req.user.id, req.user.username);
@@ -1516,7 +1613,7 @@ fastify.get('/contracts', { preHandler: [auth] }, async (req, reply) => {
     }
   }
 
-  return reply.view('contracts.pug', { contracts, user: req.user, searchKeyword });
+  return reply.view('contracts.pug', { contracts, user: req.user, searchKeyword, showExpiringOnly });
 });
 
 fastify.get('/contracts/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {

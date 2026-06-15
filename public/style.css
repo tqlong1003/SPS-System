@@ -461,6 +461,37 @@ tr:hover {
   gap: 15px;
 }
 
+a.stat-card {
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+a.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+}
+
+.contract-stat-card .stat-link,
+.contract-stat-card .contract-alert-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.contract-stat-card .stat-link {
+  display: block;
+}
+
+.contract-stat-card .contract-alert-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+.contract-stat-card .contract-alert-link:hover {
+  color: var(--primary);
+}
+
 .stat-icon {
   font-size: 1.5rem;
   padding: 15px;

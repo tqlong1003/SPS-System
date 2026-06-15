@@ -27,39 +27,49 @@ html
 
         if user.role === 'admin'
           .stats-grid
-            .stat-card
+            a.stat-card(href="/employees")
               .stat-icon.blue
                 i.fas.fa-user-check
               .stat-info
                 span Nhân viên hiện tại
                 h2= dashboardStats ? dashboardStats.employeeCount : 0
-            .stat-card
+            a.stat-card(href="/departments")
               .stat-icon.green
                 i.fas.fa-building
               .stat-info
                 span Phòng ban
                 h2= dashboardStats ? dashboardStats.departmentCount : 0
-            .stat-card
+            a.stat-card(href="/salary/provisional")
               .stat-icon.orange
                 i.fas.fa-clock
               .stat-info
                 span Chờ duyệt lương
                 h2= dashboardStats ? dashboardStats.pendingSalaryCount : 0
+            .stat-card.contract-stat-card
+              .stat-icon.blue
+                i.fas.fa-file-contract
+              .stat-info
+                a.stat-link(href="/contracts")
+                  span Hợp đồng
+                  h2= dashboardStats ? dashboardStats.contractCount : 0
+                a.contract-alert-link(href="/contracts?filter=expiring")
+                  | Sắp hết hạn: 
+                  strong= dashboardStats ? dashboardStats.expiringContracts.length : 0
         else
           .stats-grid
-            .stat-card
+            a.stat-card(href="/profile")
               .stat-icon.blue
                 i.fas.fa-id-card
               .stat-info
                 span Hồ sơ cá nhân
                 h2 01
-            .stat-card
+            a.stat-card(href="/attendance")
               .stat-icon.green
                 i.fas.fa-calendar-check
               .stat-info
                 span Chấm công
                 h2 Cá nhân
-            .stat-card
+            a.stat-card(href="/salary")
               .stat-icon.orange
                 i.fas.fa-wallet
               .stat-info

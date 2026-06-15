@@ -26,6 +26,10 @@ html
           h1 📄 Quản lý hợp đồng
           p= user.role === 'admin' ? 'Danh sách thông tin và thời hạn các hợp đồng lao động' : 'Thông tin hợp đồng lao động của bạn'
 
+        if user.role === 'admin' && showExpiringOnly
+          div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #eff6ff; color: #1d4ed8; font-weight: 600;")
+            | Đang hiển thị danh sách hợp đồng sắp hết hạn trong 30 ngày tới.
+
         if user.role === 'admin'
           a.btn-add(href="/contracts/add" style="margin-bottom: 15px;")
             | ➕ Thêm hợp đồng

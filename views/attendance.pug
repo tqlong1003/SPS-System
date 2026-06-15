@@ -215,7 +215,7 @@ html
                     if user.role === 'admin'
                       td
                         a.btn-edit(href=`/attendance/edit/${record._id}`) Sửa
-                        a.btn-delete(href=`/attendance/delete/${record._id}` style="margin-left: 5px;") Xóa
+                        a.btn-delete(href=`/attendance/delete/${record._id}` onclick="return confirm('Bạn có chắc chắn muốn xóa dữ liệu chấm công này không?')" style="margin-left: 5px;") Xóa
               else
                 tr
                   td(colspan=user.role === 'admin' ? "8" : "7", style="text-align: center; padding: 20px;") Chưa có dữ liệu

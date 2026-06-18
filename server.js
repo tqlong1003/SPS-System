@@ -28,7 +28,10 @@ fastify.register(require('@fastify/formbody'))
 
 // Đăng ký xử lý tải tệp tin (Được thêm để xử lý multipart/form-data)
 fastify.register(require('@fastify/multipart'), {
-  addToBody: true // Tự động chuyển các trường text thông thường vào req.body để quản lý thuận tiện
+  addToBody: true, // Tự động chuyển các trường text thông thường vào req.body để quản lý thuận tiện
+  limits: {
+    fileSize: 20 * 1024 * 1024 // Cho phép file đính kèm tối đa 20MB (đủ cho file Word/Excel/PowerPoint)
+  }
 })
 
 // Quản lý cookie (lưu token đăng nhập)
@@ -320,10 +323,7 @@ fastify.get('/', async (req, reply) => {
 
 
 // ================= ĐĂNG KÝ (Chuyển thành Admin tạo tài khoản) =================
-// Luồng hiện tại:
-// - Chỉ admin được tạo tài khoản.
-// - Sau khi tạo user, hệ thống vẫn tạo thêm 1 employee placeholder.
-// - Đây là điểm cần lưu ý vì dễ tạo dữ liệu tạm như name = username.
+// Luồng hiện tại:Chỉ admin được tạo tài khoản.Sau khi tạo user, hệ thống vẫn tạo thêm 1 employee placeholder.
 
 // 1. Hiển thị form đăng ký - Chỉ Admin mới vào được
 fastify.get('/register', { preHandler: [auth, isAdmin] }, async (req, reply) => {
@@ -449,10 +449,16 @@ fastify.get('/logout', async (req, reply) => {
 
 // ================= DASHBOARD =================
 // Dashboard admin lấy số tổng hợp thật từ MongoDB.
-// Dashboard user không dùng số tổng hợp toàn hệ thống, chỉ hiển thị giao diện cá nhân hóa nhẹ hơn.
 fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
   let dashboardStats = null
 
+  // Lấy vài thông báo mới nhất để hiển thị nhanh trên dashboard cho cả admin và user
+  const latestNotifications = await fastify.mongo.db.collection('notifications')
+    .find()
+    .sort({ pinned: -1, createdAt: -1 })
+    .limit(5)
+    .toArray()
+// Nếu là admin → lấy thêm số liệu tổng hợp
   if (req.user.role === 'admin') {
     const [employeeCount, departmentCount, pendingSalaryCount, contracts, employees] = await Promise.all([
       fastify.mongo.db.collection('employees').countDocuments({ employeeCode: { $exists: true, $ne: '' } }),
@@ -495,14 +501,13 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
     }
   }
 
-  return reply.view('dashboard.pug', { user: req.user, dashboardStats })
+  return reply.view('dashboard.pug', { user: req.user, dashboardStats, latestNotifications })
 })
 
+// ================= QUẢN LÝ TÀI KHOẢN =================
 fastify.get('/accounts', { preHandler: [auth, isAdmin] }, async (req, reply) => {
   // Màn hình accounts chỉ dành cho admin.
-  // Dữ liệu ở đây đang cố gắng nối tài khoản với hồ sơ nhân viên theo 2 cách:
-  // 1. userId -> employee
-  // 2. username -> employeeCode/code/maNV
+  //Dữ liệu ở đây đang cố gắng nối tài khoản với hồ sơ nhân viên theo 2 cách:1. userId -> employee,2. username -> employeeCode/code/maNV
   const users = await fastify.mongo.db.collection('users').find().toArray()
   const employees = await fastify.mongo.db.collection('employees').find().toArray()
   const normalizeEmployeeCode = (value) => String(value || '').trim().toUpperCase()
@@ -1669,6 +1674,448 @@ fastify.get('/contracts/delete/:id', { preHandler: [auth, isAdmin] }, async (req
   await fastify.mongo.db.collection('contracts').deleteOne({ _id: new ObjectId(req.params.id) });
   reply.redirect('/contracts');
 });
+
+// ================= THÔNG BÁO =================
+// Mục đích: tạo 1 nơi tập trung để admin "đẩy" thông báo chung tới toàn bộ nhân viên.
+// (Quyết định - khen thưởng, kỷ luật, bổ nhiệm... được quản lý riêng ở /decisions)
+// Quy tắc quyền:
+// - admin: xem toàn bộ + thêm/sửa/xóa.
+// - user: chỉ được xem danh sách, không có quyền thêm/sửa/xóa.
+// Hỗ trợ đính kèm 1 file văn bản (ảnh/PDF...) tương tự cách làm ở employees/edit.
+
+// Hàm dùng chung để lưu file đính kèm thông báo từ multipart stream xuống /public/uploads/notifications
+async function saveNotificationAttachment(filePart) {
+  if (!filePart || !filePart.file || !filePart.filename) {
+    return null
+  }
+
+  const safeFilename = `${Date.now()}-${filePart.filename}`
+  const uploadDir = path.join(__dirname, 'public', 'uploads', 'notifications')
+
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true })
+  }
+
+  const saveTo = path.join(uploadDir, safeFilename)
+
+  await new Promise((resolve, reject) => {
+    const writeStream = fs.createWriteStream(saveTo)
+    filePart.file.pipe(writeStream)
+    filePart.file.on('end', resolve)
+    filePart.file.on('error', reject)
+  })
+
+  return {
+    attachmentUrl: `/public/uploads/notifications/${safeFilename}`,
+    attachmentName: filePart.filename
+  }
+}
+
+// Danh sách thông báo - cả admin và user đều xem được, ghim (pinned) lên đầu
+fastify.get('/notifications', { preHandler: [auth] }, async (req, reply) => {
+  const notifications = await fastify.mongo.db.collection('notifications')
+    .find()
+    .sort({ pinned: -1, createdAt: -1 })
+    .toArray()
+
+  return reply.view('notifications.pug', { notifications, user: req.user })
+})
+
+// Form đăng thông báo mới - chỉ admin
+fastify.get('/notifications/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  return reply.view('add_notification.pug', { user: req.user, error: req.query.error || null })
+})
+
+fastify.post('/notifications/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const data = await req.file()
+    if (!data) {
+      return reply.status(400).send('❌ Không nhận được dữ liệu form gửi lên!')
+    }
+
+    const title = String(data.fields?.title?.value || '').trim()
+    const content = String(data.fields?.content?.value || '').trim()
+    const pinned = Boolean(data.fields?.pinned?.value)
+
+    if (!title || !content) {
+      return reply.redirect('/notifications/add?error=' + encodeURIComponent('Vui lòng nhập đầy đủ tiêu đề và nội dung!'))
+    }
+
+    const attachment = await saveNotificationAttachment(data)
+
+    await fastify.mongo.db.collection('notifications').insertOne({
+      title,
+      content,
+      pinned,
+      attachmentUrl: attachment?.attachmentUrl || '',
+      attachmentName: attachment?.attachmentName || '',
+      createdBy: req.user.username,
+      createdAt: new Date()
+    })
+
+    return reply.redirect('/notifications')
+  } catch (err) {
+    fastify.log.error(err)
+    return reply.status(500).send('❌ Lỗi khi đăng thông báo!')
+  }
+})
+
+// Sửa thông báo - chỉ admin
+fastify.get('/notifications/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const notification = await fastify.mongo.db.collection('notifications').findOne({ _id: new ObjectId(req.params.id) })
+
+  if (!notification) {
+    return reply.status(404).send('❌ Không tìm thấy thông báo')
+  }
+
+  return reply.view('edit_notification.pug', { notification, user: req.user, error: req.query.error || null })
+})
+
+fastify.post('/notifications/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const data = await req.file()
+    if (!data) {
+      return reply.status(400).send('❌ Không nhận được dữ liệu form gửi lên!')
+    }
+
+    // Giữ lại file đính kèm cũ nếu admin không tải file mới lên
+    const oldNotification = await fastify.mongo.db.collection('notifications').findOne({ _id: new ObjectId(req.params.id) })
+    let attachmentUrl = oldNotification ? oldNotification.attachmentUrl : ''
+    let attachmentName = oldNotification ? oldNotification.attachmentName : ''
+
+    const newAttachment = await saveNotificationAttachment(data)
+    if (newAttachment) {
+      attachmentUrl = newAttachment.attachmentUrl
+      attachmentName = newAttachment.attachmentName
+    }
+
+    const title = String(data.fields?.title?.value || '').trim()
+    const content = String(data.fields?.content?.value || '').trim()
+    const pinned = Boolean(data.fields?.pinned?.value)
+
+    if (!title || !content) {
+      return reply.redirect(`/notifications/edit/${req.params.id}?error=` + encodeURIComponent('Vui lòng nhập đầy đủ tiêu đề và nội dung!'))
+    }
+
+    await fastify.mongo.db.collection('notifications').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { title, content, pinned, attachmentUrl, attachmentName, updatedAt: new Date() } }
+    )
+
+    return reply.redirect('/notifications')
+  } catch (err) {
+    fastify.log.error(err)
+    return reply.status(500).send('❌ Lỗi khi cập nhật thông báo!')
+  }
+})
+
+// Xóa thông báo - chỉ admin
+fastify.get('/notifications/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const notification = await fastify.mongo.db.collection('notifications').findOne({ _id: new ObjectId(req.params.id) })
+
+    // Xóa luôn file đính kèm trên đĩa nếu có, tránh rác trong /public/uploads
+    if (notification && notification.attachmentUrl) {
+      const filePath = path.join(__dirname, notification.attachmentUrl.replace(/^\/public\//, 'public/'))
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+      }
+    }
+
+    await fastify.mongo.db.collection('notifications').deleteOne({ _id: new ObjectId(req.params.id) })
+    reply.redirect('/notifications')
+  } catch (err) {
+    fastify.log.error(err)
+    return reply.status(500).send('❌ Lỗi khi xóa thông báo!')
+  }
+})
+
+// ================= QUYẾT ĐỊNH =================
+// Collection riêng: 'decisions' (tách biệt khỏi 'notifications')
+// Mỗi quyết định lưu mảng recipients (ObjectId[] của employees)
+// Khi nhân viên vào /decisions, chỉ thấy quyết định có employeeId của họ trong recipients
+// Admin thấy tất cả và thấy danh sách người nhận
+
+// Hàm lưu file đính kèm cho quyết định (tái sử dụng logic của notifications)
+async function saveDecisionAttachment(data) {
+  const filePart = data
+  if (!filePart || !filePart.file || !filePart.filename) {
+    return null
+  }
+
+  // Bổ sung các loại tệp Word vào đây
+  const allowedTypes = [
+  // Hình ảnh
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  // PDF
+  'application/pdf',
+  // MS Word
+  'application/msword', 
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  // MS Excel
+  'application/vnd.ms-excel', 
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  // MS PowerPoint
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  // Định dạng nén phổ biến
+  'application/zip',
+  'application/x-rar-compressed'
+];
+  
+  if (filePart.mimetype && !allowedTypes.includes(filePart.mimetype)) {
+    // Gợi ý: Bạn có thể log filePart.mimetype ra console để xem chính xác 
+    // trình duyệt gửi lên kiểu gì nếu nó vẫn không chạy
+    console.log("Loại tệp không được hỗ trợ:", filePart.mimetype); 
+    return null
+  }
+
+  const safeFilename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${filePart.filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+  const uploadDir = path.join(__dirname, 'public', 'uploads', 'decisions')
+
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true })
+  }
+
+  const saveTo = path.join(uploadDir, safeFilename)
+  await new Promise((resolve, reject) => {
+    const writeStream = fs.createWriteStream(saveTo)
+    filePart.file.pipe(writeStream)
+    filePart.file.on('end', resolve)
+    filePart.file.on('error', reject)
+  })
+
+  return {
+    attachmentUrl: `/public/uploads/decisions/${safeFilename}`,
+    attachmentName: filePart.filename
+  }
+}
+
+// Helper: lấy employeeId của user đang đăng nhập
+async function getEmployeeIdForUser(userId, username) {
+  const emp = await findEmployeeByUserId(userId, username)
+  return emp ? emp._id : null
+}
+
+// Danh sách quyết định
+// - Admin: xem tất cả, kèm thông tin người nhận
+// - User: chỉ xem quyết định gửi cho mình (recipients chứa employeeId của họ)
+//         HOẶC quyết định gửi cho tất cả (recipients rỗng / không có trường)
+fastify.get('/decisions', { preHandler: [auth] }, async (req, reply) => {
+  let decisions
+
+  if (req.user.role === 'admin') {
+    // Admin xem toàn bộ
+    decisions = await fastify.mongo.db.collection('decisions')
+      .find()
+      .sort({ pinned: -1, createdAt: -1 })
+      .toArray()
+
+    // Bổ sung tên nhân viên nhận vào từng quyết định để hiển thị
+    const allEmpIds = [...new Set(
+      decisions.flatMap(d => (d.recipients || []).map(id => id.toString()))
+    )]
+
+    let empMap = new Map()
+    if (allEmpIds.length > 0) {
+      const emps = await fastify.mongo.db.collection('employees')
+        .find({ _id: { $in: allEmpIds.map(id => new ObjectId(id)) } })
+        .toArray()
+      empMap = new Map(emps.map(e => [e._id.toString(), e.name]))
+    }
+
+    decisions = decisions.map(d => ({
+      ...d,
+      recipientNames: d.recipients && d.recipients.length > 0
+        ? d.recipients.map(id => empMap.get(id.toString()) || 'Không rõ')
+        : []
+    }))
+  } else {
+    // User thường: tìm employeeId của họ
+    const emp = await findEmployeeByUserId(req.user.id, req.user.username)
+    if (!emp) {
+      return reply.view('decisions.pug', { decisions: [], user: req.user })
+    }
+
+    const empId = emp._id
+
+    // Lấy quyết định gửi cho tất cả (recipients rỗng hoặc không tồn tại)
+    // HOẶC quyết định có chứa employeeId của họ
+    decisions = await fastify.mongo.db.collection('decisions')
+      .find({
+        $or: [
+          { recipients: { $exists: false } },
+          { recipients: { $size: 0 } },
+          { recipients: empId }
+        ]
+      })
+      .sort({ pinned: -1, createdAt: -1 })
+      .toArray()
+  }
+
+  return reply.view('decisions.pug', { decisions, user: req.user })
+})
+
+// Form tạo quyết định mới - chỉ admin
+fastify.get('/decisions/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const employees = await fastify.mongo.db.collection('employees')
+    .find({ employeeCode: { $exists: true, $ne: '' } })
+    .sort({ name: 1 })
+    .toArray()
+
+  return reply.view('add_decision.pug', { user: req.user, employees, error: req.query.error || null })
+})
+
+fastify.post('/decisions/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const data = await req.file()
+    if (!data) {
+      return reply.status(400).send('❌ Không nhận được dữ liệu form gửi lên!')
+    }
+
+    const title = String(data.fields?.title?.value || '').trim()
+    const content = String(data.fields?.content?.value || '').trim()
+    const pinned = Boolean(data.fields?.pinned?.value)
+    const recipientType = String(data.fields?.recipientType?.value || 'specific').trim()
+
+    if (!title || !content) {
+      return reply.redirect('/decisions/add?error=' + encodeURIComponent('Vui lòng nhập đầy đủ tiêu đề và nội dung!'))
+    }
+
+    // Xử lý danh sách nhân viên nhận
+    let recipients = []
+    if (recipientType === 'specific') {
+      const rawRecipients = data.fields?.recipients
+      if (rawRecipients) {
+        // Có thể là 1 giá trị hoặc mảng
+        const recipientValues = Array.isArray(rawRecipients)
+          ? rawRecipients.map(r => r.value)
+          : [rawRecipients.value]
+
+        recipients = recipientValues
+          .filter(v => v && ObjectId.isValid(v))
+          .map(v => new ObjectId(v))
+      }
+
+      if (recipients.length === 0) {
+        return reply.redirect('/decisions/add?error=' + encodeURIComponent('Vui lòng chọn ít nhất 1 nhân viên nhận quyết định!'))
+      }
+    }
+    // Nếu recipientType === 'all' thì recipients = [] (tất cả đều xem được)
+
+    const attachment = await saveDecisionAttachment(data)
+
+    await fastify.mongo.db.collection('decisions').insertOne({
+      title,
+      content,
+      type: 'Quyết định',
+      pinned,
+      recipients, // [] = tất cả, [ObjectId,...] = chỉ những nhân viên này
+      attachmentUrl: attachment?.attachmentUrl || '',
+      attachmentName: attachment?.attachmentName || '',
+      createdBy: req.user.username,
+      createdAt: new Date()
+    })
+
+    return reply.redirect('/decisions')
+  } catch (err) {
+    fastify.log.error(err)
+    return reply.status(500).send('❌ Lỗi khi ban hành quyết định!')
+  }
+})
+
+// Sửa quyết định - chỉ admin
+fastify.get('/decisions/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const decision = await fastify.mongo.db.collection('decisions').findOne({ _id: new ObjectId(req.params.id) })
+
+  if (!decision) {
+    return reply.status(404).send('❌ Không tìm thấy quyết định')
+  }
+
+  const employees = await fastify.mongo.db.collection('employees')
+    .find({ employeeCode: { $exists: true, $ne: '' } })
+    .sort({ name: 1 })
+    .toArray()
+
+  return reply.view('edit_decision.pug', { decision, employees, user: req.user, error: req.query.error || null })
+})
+
+fastify.post('/decisions/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const data = await req.file()
+    if (!data) {
+      return reply.status(400).send('❌ Không nhận được dữ liệu form gửi lên!')
+    }
+
+    const oldDecision = await fastify.mongo.db.collection('decisions').findOne({ _id: new ObjectId(req.params.id) })
+    let attachmentUrl = oldDecision ? oldDecision.attachmentUrl : ''
+    let attachmentName = oldDecision ? oldDecision.attachmentName : ''
+
+    const newAttachment = await saveDecisionAttachment(data)
+    if (newAttachment) {
+      attachmentUrl = newAttachment.attachmentUrl
+      attachmentName = newAttachment.attachmentName
+    }
+
+    const title = String(data.fields?.title?.value || '').trim()
+    const content = String(data.fields?.content?.value || '').trim()
+    const pinned = Boolean(data.fields?.pinned?.value)
+    const recipientType = String(data.fields?.recipientType?.value || 'specific').trim()
+
+    if (!title || !content) {
+      return reply.redirect(`/decisions/edit/${req.params.id}?error=` + encodeURIComponent('Vui lòng nhập đầy đủ tiêu đề và nội dung!'))
+    }
+
+    let recipients = []
+    if (recipientType === 'specific') {
+      const rawRecipients = data.fields?.recipients
+      if (rawRecipients) {
+        const recipientValues = Array.isArray(rawRecipients)
+          ? rawRecipients.map(r => r.value)
+          : [rawRecipients.value]
+
+        recipients = recipientValues
+          .filter(v => v && ObjectId.isValid(v))
+          .map(v => new ObjectId(v))
+      }
+
+      if (recipients.length === 0) {
+        return reply.redirect(`/decisions/edit/${req.params.id}?error=` + encodeURIComponent('Vui lòng chọn ít nhất 1 nhân viên nhận quyết định!'))
+      }
+    }
+
+    await fastify.mongo.db.collection('decisions').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { title, content, pinned, recipients, attachmentUrl, attachmentName, updatedAt: new Date() } }
+    )
+
+    return reply.redirect('/decisions')
+  } catch (err) {
+    fastify.log.error(err)
+    return reply.status(500).send('❌ Lỗi khi cập nhật quyết định!')
+  }
+})
+
+// Xóa quyết định - chỉ admin
+fastify.get('/decisions/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  try {
+    const decision = await fastify.mongo.db.collection('decisions').findOne({ _id: new ObjectId(req.params.id) })
+
+    if (decision && decision.attachmentUrl) {
+      const filePath = path.join(__dirname, decision.attachmentUrl.replace(/^\/public\//, 'public/'))
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+      }
+    }
+
+    await fastify.mongo.db.collection('decisions').deleteOne({ _id: new ObjectId(req.params.id) })
+    return reply.redirect('/decisions')
+  } catch (err) {
+    fastify.log.error(err)
+    return reply.status(500).send('❌ Lỗi khi xóa quyết định!')
+  }
+})
+
 
 // ================= THÔNG TIN TÀI KHOẢN (CẬP NHẬT) =================
 fastify.get('/profile', { preHandler: [auth] }, async (req, reply) => {

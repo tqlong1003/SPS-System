@@ -1,0 +1,78 @@
+doctype html
+html
+  head
+    title Đăng thông báo mới - HRM System
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    // Sidebar bên trái
+    include sidebar.pug
+
+    // Khu vực nội dung bên phải
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào, 
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .content-wrapper
+        .welcome-banner
+          h1 📝 Đăng thông báo mới
+          p Nội dung sau khi đăng sẽ hiển thị ngay tới toàn bộ nhân viên trong hệ thống
+
+        .center-wrapper
+          .card-form
+            .card-header
+              i.fas.fa-bullhorn
+              h2 Nội dung thông báo
+
+            if error
+              .alert-error= error
+
+            form(method="POST" action="/notifications/add" enctype="multipart/form-data")
+              .form-group
+                label Tiêu đề
+                input(type="text" name="title" placeholder="VD: Thông báo nghỉ lễ Quốc khánh 2/9" required)
+
+              .form-group
+                label Nội dung chi tiết
+                textarea(name="content" rows="6" placeholder="Nhập nội dung thông báo..." required style="width: 100%; padding: 12px 15px; border: 1.5px solid #e5e7eb; border-radius: 10px; font-size: 1rem; font-family: inherit; resize: vertical;")
+
+              .form-group
+                label Văn bản đính kèm (PDF, ảnh... nếu có)
+                input(type="file" name="attachment" style="background: white; border: 1.5px solid #e5e7eb; padding: 10px 15px;")
+
+              .form-group(style="display: flex; align-items: center; gap: 10px;")
+                input(type="checkbox" name="pinned" id="pinned" style="width: auto; margin: 0;")
+                label(for="pinned" style="margin: 0; cursor: pointer;") Ghim quan trọng lên đầu danh sách
+
+              .form-actions
+                button.btn-save(type="submit")
+                  i.fas.fa-paper-plane
+                  |  Đăng thông báo
+                a.btn-cancel(href="/notifications") Hủy bỏ
+
+    script.
+      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
+        item.addEventListener('click', function(e) {
+          e.preventDefault();
+          const menuGroup = this.closest('.menu-group');
+          const submenu = menuGroup.querySelector('.submenu');
+          const toggleIcon = this.querySelector('.toggle-icon');
+
+          document.querySelectorAll('.submenu').forEach(sub => {
+            if (sub !== submenu) {
+              sub.classList.remove('show');
+              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
+              if (icon) icon.classList.remove('rotate');
+            }
+          });
+
+          submenu.classList.toggle('show');
+          toggleIcon.classList.toggle('rotate');
+        });
+      });

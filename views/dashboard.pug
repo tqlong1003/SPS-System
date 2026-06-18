@@ -25,6 +25,22 @@ html
           h1 👋 Chào mừng, #{user.username}
           p Quản lý hệ thống nhân sự một cách hiệu quả và nhanh chóng
 
+        .dashboard-notifications
+          .dashboard-notifications-header
+            h3
+              i.fas.fa-bullhorn
+              |  Thông báo mới nhất
+            a(href="/notifications") Xem tất cả →
+          if latestNotifications && latestNotifications.length > 0
+            each n in latestNotifications
+              a.dashboard-notification-item(href="/notifications")
+                span.notification-badge.announce Thông báo
+                .dashboard-notification-text
+                  strong= n.title
+                  span= new Date(n.createdAt).toLocaleString('vi-VN')
+          else
+            p.dashboard-notification-empty Hiện chưa có thông báo nào được đăng
+
         if user.role === 'admin'
           .stats-grid
             a.stat-card(href="/employees")

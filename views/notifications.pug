@@ -1,0 +1,100 @@
+doctype html
+html
+  head
+    title Thông báo - HRM System
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    // Sidebar bên trái
+    include sidebar.pug
+
+    // Khu vực nội dung bên phải
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" id="searchInput" placeholder="Tìm kiếm thông báo...")
+        .user-info
+          span.welcome Xin chào, 
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .content-wrapper
+        .welcome-banner
+          h1 📢 Thông báo
+          p Toàn bộ thông báo mới nhất từ công ty được cập nhật tại đây
+
+        if user.role === 'admin'
+          a.btn-add(href="/notifications/add" style="text-decoration: none; width: fit-content;")
+            i.fas.fa-plus
+            |  Đăng thông báo mới
+
+        if notifications && notifications.length > 0
+          .notification-list#notificationList
+            each n in notifications
+              .notification-card(class=n.pinned ? 'pinned' : '')
+                .notification-header
+                  span.notification-badge.announce Thông báo
+                  if n.pinned
+                    span.notification-pin
+                      i.fas.fa-thumbtack
+                      |  Quan trọng
+                  span.notification-date= new Date(n.createdAt).toLocaleString('vi-VN')
+
+                h3.notification-title= n.title
+                p.notification-content= n.content
+
+                if n.attachmentUrl
+                  a.notification-attachment(href=n.attachmentUrl target="_blank" rel="noopener")
+                    i.fas.fa-paperclip
+                    |  #{n.attachmentName || 'Xem văn bản đính kèm'}
+
+                .notification-meta
+                  span
+                    i.fas.fa-user-shield
+                    |  Đăng bởi: #{n.createdBy || 'Admin'}
+                  if user.role === 'admin'
+                    .notification-actions
+                      a.btn-edit(href=`/notifications/edit/${n._id}`)
+                        i.fas.fa-edit
+                        |  Sửa
+                      a.btn-delete(href=`/notifications/delete/${n._id}` onclick="return confirm('Bạn có chắc chắn muốn xóa thông báo này?')")
+                        i.fas.fa-trash
+                        |  Xóa
+        else
+          .table-container
+            p(style="text-align: center; padding: 40px; color: #999;")
+              i.fas.fa-bell-slash(style="font-size: 2em; display: block; margin-bottom: 10px;")
+              | Hiện chưa có thông báo nào được đăng
+
+    script.
+      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
+        item.addEventListener('click', function(e) {
+          e.preventDefault();
+          const menuGroup = this.closest('.menu-group');
+          const submenu = menuGroup.querySelector('.submenu');
+          const toggleIcon = this.querySelector('.toggle-icon');
+
+          document.querySelectorAll('.submenu').forEach(sub => {
+            if (sub !== submenu) {
+              sub.classList.remove('show');
+              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
+              if (icon) icon.classList.remove('rotate');
+            }
+          });
+
+          submenu.classList.toggle('show');
+          toggleIcon.classList.toggle('rotate');
+        });
+      });
+
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput) {
+        searchInput.addEventListener('input', function() {
+          const keyword = this.value.toLowerCase();
+          document.querySelectorAll('#notificationList .notification-card').forEach(card => {
+            const text = card.innerText.toLowerCase();
+            card.style.display = text.includes(keyword) ? '' : 'none';
+          });
+        });
+      }

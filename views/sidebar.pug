@@ -6,16 +6,38 @@ nav.sidebar
   .sidebar-menu
     // --- TỔNG QUAN ---
     .menu-group
-      //- BỎ class .active để menu ở trạng thái đóng mặc định
       a.menu-item.has-submenu(href="#")
         span
           i.fas.fa-th-large
           span Tổng quan
         i.fas.fa-chevron-down.toggle-icon
-      //- BỎ class .show để submenu ẩn đi lúc ban đầu
       .submenu
         a.submenu-item(href="/dashboard") Thống kê
         a.submenu-item(href="/employees") #{user.role === 'admin' ? 'Danh sách nhân viên' : 'Thông tin cá nhân'}
+
+    // --- THÔNG BÁO ---
+    .menu-group
+      a.menu-item.has-submenu(href="#")
+        span
+          i.fas.fa-bullhorn
+          span Thông báo
+        i.fas.fa-chevron-down.toggle-icon
+      .submenu
+        a.submenu-item(href="/notifications") Danh sách thông báo
+        if user.role === 'admin'
+          a.submenu-item(href="/notifications/add") Đăng thông báo mới
+
+    // --- QUYẾT ĐỊNH ---
+    .menu-group
+      a.menu-item.has-submenu(href="#")
+        span
+          i.fas.fa-file-alt
+          span Quyết định
+        i.fas.fa-chevron-down.toggle-icon
+      .submenu
+        a.submenu-item(href="/decisions") Danh sách quyết định
+        if user.role === 'admin'
+          a.submenu-item(href="/decisions/add") Ban hành quyết định mới
 
     // --- NHÂN VIÊN ---
     .menu-group

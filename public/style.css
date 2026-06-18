@@ -816,3 +816,182 @@ a.stat-card:hover {
 .btn-back i {
   margin-right: 8px; /* Khoảng cách giữa icon và chữ */
 }
+
+/* ================= THÔNG BÁO & QUYẾT ĐỊNH ================= */
+.notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.notification-card {
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px 24px;
+  border-left: 4px solid var(--primary);
+}
+
+.notification-card.pinned {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.notification-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.notification-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: white;
+  white-space: nowrap;
+}
+
+.notification-badge.announce { background: var(--primary); }
+.notification-badge.decision { background: var(--secondary); }
+
+.notification-pin {
+  color: #b45309;
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.notification-date {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+
+.notification-title {
+  font-size: 1.15rem;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.notification-content {
+  color: #4b5563;
+  white-space: pre-line;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.notification-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: var(--primary);
+  text-decoration: none;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.notification-attachment:hover {
+  text-decoration: underline;
+}
+
+.notification-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.notification-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.notification-actions .btn-edit,
+.notification-actions .btn-delete {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+/* Widget thông báo mới nhất hiển thị trên Dashboard */
+.dashboard-notifications {
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px 24px;
+}
+
+.dashboard-notifications-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.dashboard-notifications-header h3 {
+  color: var(--primary);
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-notifications-header a {
+  font-size: 0.85rem;
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.dashboard-notifications-header a:hover {
+  text-decoration: underline;
+}
+
+.dashboard-notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f5f9;
+  text-decoration: none;
+  color: inherit;
+}
+
+.dashboard-notification-item:last-child {
+  border-bottom: none;
+}
+
+.dashboard-notification-item .notification-badge {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.dashboard-notification-text strong {
+  display: block;
+  color: #111827;
+  margin-bottom: 2px;
+}
+
+.dashboard-notification-text span {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.dashboard-notification-empty {
+  color: #9ca3af;
+  font-style: italic;
+  padding: 12px 0;
+}

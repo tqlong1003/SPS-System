@@ -1,0 +1,113 @@
+doctype html
+html
+  head
+    title Quyết định - HRM System
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" id="searchInput" placeholder="Tìm kiếm quyết định...")
+        .user-info
+          span.welcome Xin chào, 
+            strong #{user.username}
+          .avatar #{user.username.charAt(0).toUpperCase()}
+
+      .content-wrapper
+        .welcome-banner
+          h1 📋 Quyết định
+          if user.role === 'admin'
+            p Toàn bộ quyết định đã ban hành trong hệ thống
+          else
+            p Các quyết định được gửi đến bạn
+
+        if user.role === 'admin'
+          a.btn-add(href="/decisions/add" style="text-decoration: none; width: fit-content;")
+            i.fas.fa-plus
+            |  Ban hành quyết định mới
+
+        if decisions && decisions.length > 0
+          .notification-list#decisionList
+            each d in decisions
+              .notification-card(class=d.pinned ? 'pinned' : '')
+                .notification-header
+                  span.notification-badge.decision Quyết định
+                  if d.pinned
+                    span.notification-pin
+                      i.fas.fa-thumbtack
+                      |  Quan trọng
+                  span.notification-date= new Date(d.createdAt).toLocaleString('vi-VN')
+
+                h3.notification-title= d.title
+                p.notification-content= d.content
+
+                //- Danh sách nhân viên nhận quyết định
+                if user.role === 'admin' && d.recipients && d.recipients.length > 0
+                  .decision-recipients(style="margin: 10px 0; padding: 8px 12px; background: #f0f9ff; border-radius: 8px; border-left: 3px solid #3b82f6;")
+                    span(style="font-size: 0.85rem; color: #1d4ed8; font-weight: 600;")
+                      i.fas.fa-users(style="margin-right: 5px;")
+                      | Gửi đến:
+                    |  
+                    span(style="font-size: 0.85rem; color: #374151;")= d.recipientNames ? d.recipientNames.join(', ') : 'Tất cả nhân viên'
+
+                if d.attachmentUrl
+                  a.notification-attachment(href=d.attachmentUrl target="_blank" rel="noopener")
+                    i.fas.fa-paperclip
+                    |  #{d.attachmentName || 'Xem văn bản đính kèm'}
+
+                .notification-meta
+                  span
+                    i.fas.fa-user-shield
+                    |  Ban hành bởi: #{d.createdBy || 'Admin'}
+                  if user.role === 'admin'
+                    .notification-actions
+                      a.btn-edit(href=`/decisions/edit/${d._id}`)
+                        i.fas.fa-edit
+                        |  Sửa
+                      a.btn-delete(href=`/decisions/delete/${d._id}` onclick="return confirm('Bạn có chắc chắn muốn xóa quyết định này?')")
+                        i.fas.fa-trash
+                        |  Xóa
+        else
+          .table-container
+            p(style="text-align: center; padding: 40px; color: #999;")
+              i.fas.fa-file-alt(style="font-size: 2em; display: block; margin-bottom: 10px;")
+              if user.role === 'admin'
+                | Chưa có quyết định nào được ban hành
+              else
+                | Chưa có quyết định nào được gửi đến bạn
+
+    script.
+      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
+        item.addEventListener('click', function(e) {
+          e.preventDefault();
+          const menuGroup = this.closest('.menu-group');
+          const submenu = menuGroup.querySelector('.submenu');
+          const toggleIcon = this.querySelector('.toggle-icon');
+
+          document.querySelectorAll('.submenu').forEach(sub => {
+            if (sub !== submenu) {
+              sub.classList.remove('show');
+              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
+              if (icon) icon.classList.remove('rotate');
+            }
+          });
+
+          submenu.classList.toggle('show');
+          toggleIcon.classList.toggle('rotate');
+        });
+      });
+
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput) {
+        searchInput.addEventListener('input', function() {
+          const keyword = this.value.toLowerCase();
+          document.querySelectorAll('#decisionList .notification-card').forEach(card => {
+            const text = card.innerText.toLowerCase();
+            card.style.display = text.includes(keyword) ? '' : 'none';
+          });
+        });
+      }

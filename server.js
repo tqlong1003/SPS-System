@@ -17,8 +17,27 @@ const ATTENDANCE_SETTINGS = {
 
 const STANDARD_WORK_DAYS = 26
 
+// Chu kỳ xét tăng lương định kỳ (tính bằng tháng), tính từ lần tăng lương gần nhất
+// hoặc từ ngày vào làm nếu nhân viên chưa từng được tăng lương.
+const SALARY_REVIEW_CYCLE_MONTHS = Number(process.env.SALARY_REVIEW_CYCLE_MONTHS || '12')
+
+// Số ngày trước hạn xét lương để hiển thị cảnh báo "sắp đến hạn" trên Dashboard
+const SALARY_REVIEW_WARNING_DAYS = 30
+
 function calculateSalaryByAttendance(hardSalary, attendanceDays, bonus, advance) {
   return Math.round((Number(hardSalary || 0) / STANDARD_WORK_DAYS) * Number(attendanceDays || 0) + Number(bonus || 0) - Number(advance || 0))
+}
+
+// Tính ngày xét tăng lương kế tiếp của 1 nhân viên.
+// baseDateValue = lastRaiseDate nếu đã từng tăng lương, hoặc joinDate (ngày vào làm) nếu chưa từng tăng.
+function calculateNextSalaryReviewDate(baseDateValue, cycleMonths = SALARY_REVIEW_CYCLE_MONTHS) {
+  if (!baseDateValue || Number.isNaN(new Date(baseDateValue).getTime())) {
+    return null
+  }
+
+  const nextReviewDate = new Date(baseDateValue)
+  nextReviewDate.setMonth(nextReviewDate.getMonth() + Number(cycleMonths || 0))
+  return Number.isNaN(nextReviewDate.getTime()) ? null : nextReviewDate
 }
 
 
@@ -460,12 +479,17 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
     .toArray()
 // Nếu là admin → lấy thêm số liệu tổng hợp
   if (req.user.role === 'admin') {
-    const [employeeCount, departmentCount, pendingSalaryCount, contracts, employees] = await Promise.all([
+    const [employeeCount, departmentCount, pendingSalaryCount, contracts, employees, employeesForRaiseCheck] = await Promise.all([
       fastify.mongo.db.collection('employees').countDocuments({ employeeCode: { $exists: true, $ne: '' } }),
       fastify.mongo.db.collection('departments').countDocuments({}),
       fastify.mongo.db.collection('provisional_salaries').countDocuments({ status: 'pending' }),
       fastify.mongo.db.collection('contracts').find().toArray(),
-      fastify.mongo.db.collection('employees').find({}, { projection: { name: 1 } }).toArray()
+      fastify.mongo.db.collection('employees').find({}, { projection: { name: 1 } }).toArray(),
+      // Chỉ cần lấy đúng những trường liên quan đến việc xét tăng lương để nhẹ truy vấn
+      fastify.mongo.db.collection('employees').find(
+        { employeeCode: { $exists: true, $ne: '' }, status: { $ne: 'Đã nghỉ việc' } },
+        { projection: { name: 1, employeeCode: 1, department: 1, joinDate: 1, lastRaiseDate: 1 } }
+      ).toArray()
     ])
 
     const employeeNameById = new Map(employees.map(employee => [employee._id.toString(), employee.name || 'Chưa rõ nhân viên']))
@@ -492,12 +516,41 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
       .filter(Boolean)
       .sort((left, right) => left.daysUntilExpiration - right.daysUntilExpiration)
 
+    // Nhân viên "sắp đến hạn xét tăng lương": tính từ lastRaiseDate (nếu đã từng tăng)
+    // hoặc joinDate (nếu chưa từng tăng lương lần nào), cộng thêm chu kỳ xét lương.
+    const employeesDueForRaise = employeesForRaiseCheck
+      .map(emp => {
+        const baseDate = emp.lastRaiseDate || emp.joinDate
+        const nextReviewDate = calculateNextSalaryReviewDate(baseDate)
+
+        if (!nextReviewDate) {
+          return null // Chưa có dữ liệu ngày vào làm/ngày tăng lương → không tính được, bỏ qua
+        }
+
+        const daysUntilReview = calculateDaysUntil(nextReviewDate)
+        if (daysUntilReview < 0 || daysUntilReview > SALARY_REVIEW_WARNING_DAYS) {
+          return null
+        }
+
+        return {
+          employeeName: emp.name || 'Chưa rõ nhân viên',
+          employeeCode: emp.employeeCode || 'Chưa có mã',
+          department: emp.department || 'Chưa cập nhật',
+          basis: emp.lastRaiseDate ? 'Từ lần tăng lương gần nhất' : 'Từ ngày vào làm (chưa từng tăng lương)',
+          nextReviewDate: nextReviewDate.toISOString().slice(0, 10),
+          daysUntilReview
+        }
+      })
+      .filter(Boolean)
+      .sort((left, right) => left.daysUntilReview - right.daysUntilReview)
+
     dashboardStats = {
       employeeCount,
       departmentCount,
       pendingSalaryCount,
       contractCount: contracts.length,
-      expiringContracts
+      expiringContracts,
+      employeesDueForRaise
     }
   }
 
@@ -1493,6 +1546,15 @@ fastify.post('/salary/provisional/approve/:id', { preHandler: [auth, isAdmin] },
       { $set: { status: 'approved', approvedAt: new Date() } }
     );
 
+    // 3. Nếu phiếu lương này có khoản tăng lương (raise > 0) → cập nhật lastRaiseDate
+    // cho nhân viên, làm mốc để tính lại ngày xét tăng lương kế tiếp (xem mục Dashboard).
+    if (Number(provSalary.raise || 0) > 0) {
+      await fastify.mongo.db.collection('employees').updateOne(
+        { _id: provSalary.employeeId },
+        { $set: { lastRaiseDate: new Date() } }
+      );
+    }
+
     reply.redirect('/salary/provisional?month=' + provSalary.month);
   } catch (err) {
     fastify.log.error(err);
@@ -1548,6 +1610,14 @@ fastify.post('/salary/provisional/approve-all', { preHandler: [auth, isAdmin] },
         },
         { upsert: true }
       );
+
+      // Nếu phiếu lương này có khoản tăng lương (raise > 0) → cập nhật lastRaiseDate cho nhân viên
+      if (Number(item.raise || 0) > 0) {
+        await fastify.mongo.db.collection('employees').updateOne(
+          { _id: item.employeeId },
+          { $set: { lastRaiseDate: new Date() } }
+        );
+      }
     }
 
     // Cập nhật trạng thái hàng loạt bên bảng tạm

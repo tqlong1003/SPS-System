@@ -41,6 +41,20 @@ html
           else
             p.dashboard-notification-empty Hiện chưa có thông báo nào được đăng
 
+        if user.role === 'admin' && dashboardStats && dashboardStats.employeesDueForRaise && dashboardStats.employeesDueForRaise.length > 0
+          .dashboard-notifications
+            .dashboard-notifications-header
+              h3
+                i.fas.fa-arrow-trend-up
+                |  Nhân viên sắp đến hạn xét tăng lương
+              a(href="/employees") Xem danh sách nhân viên →
+            each item in dashboardStats.employeesDueForRaise
+              a.dashboard-notification-item(href="/employees")
+                span.notification-badge.announce= item.daysUntilReview + ' ngày'
+                .dashboard-notification-text
+                  strong= `${item.employeeName} (${item.employeeCode}) - ${item.department}`
+                  span= `Đến hạn xét lương: ${item.nextReviewDate} • ${item.basis}`
+
         if user.role === 'admin'
           .stats-grid
             a.stat-card(href="/employees")
@@ -71,6 +85,12 @@ html
                 a.contract-alert-link(href="/contracts?filter=expiring")
                   | Sắp hết hạn: 
                   strong= dashboardStats ? dashboardStats.expiringContracts.length : 0
+            a.stat-card(href="/employees")
+              .stat-icon.orange
+                i.fas.fa-arrow-trend-up
+              .stat-info
+                span Sắp đến hạn xét lương
+                h2= dashboardStats ? dashboardStats.employeesDueForRaise.length : 0
         else
           .stats-grid
             a.stat-card(href="/profile")

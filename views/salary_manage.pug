@@ -32,7 +32,7 @@ html
                 th Tháng
                 th Tên nhân viên
                 th Mã nhân viên
-                th Lương cơ bản (VND)
+                th Lương cứng (VND)
                 th Chức vụ
                 th Số công thực tế
             tbody
@@ -73,7 +73,7 @@ html
                 input(type="text", name="role", value=emp ? emp.role : "", readonly, style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; font-weight: bold;")
               
               .form-group
-                label Lương cơ bản (VNĐ) (Tự động lấy từ hồ sơ)
+                label Lương cứng (VNĐ) (Tự động lấy từ hồ sơ)
                 input(type="number", name="baseSalary", value=(emp.basicSalary || 0), readonly, style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; font-weight: bold;")
               
               .form-group 

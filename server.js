@@ -495,7 +495,7 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
     ])
 
     const employeeNameById = new Map(employees.map(employee => [employee._id.toString(), employee.name || 'Chưa rõ nhân viên']))
-    //kiểm tra hợp đồng sắp hết hạn
+    //3. kiểm tra hợp đồng sắp hết hạn
     const expiringContracts = contracts
       .map(contract => {
         //tính ngày hết hạn
@@ -520,7 +520,7 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
       .filter(Boolean)
       .sort((left, right) => left.daysUntilExpiration - right.daysUntilExpiration)
 
-    //Kiểm tra nhân viên đến kỳ thăng lương
+    //4. Kiểm tra nhân viên đến kỳ thăng lương
     const employeesDueForRaise = employeesForRaiseCheck
       .map(emp => {
         const baseDate = emp.lastRaiseDate || emp.joinDate
@@ -547,7 +547,7 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
       })
       .filter(Boolean)
       .sort((left, right) => left.daysUntilReview - right.daysUntilReview)
-    //tạo dữ liệu dashboad
+    //5. tạo dữ liệu dashboad
     dashboardStats = {
       employeeCount,
       departmentCount,
@@ -557,7 +557,7 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
       employeesDueForRaise
     }
   }
-  //trả về giao diện
+  //6. trả về giao diện
   return reply.view('dashboard.pug', { user: req.user, dashboardStats, latestNotifications })
 })
 

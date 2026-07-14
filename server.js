@@ -473,13 +473,13 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
   // Biến dashboardStats sẽ chứa các số liệu tổng hợp nếu user là admin, hoặc null nếu user là user thường.
   let dashboardStats = null
 
-  // Lấy vài thông báo mới nhất để hiển thị nhanh trên dashboard cho cả admin và user
+  //1. Lấy vài thông báo mới nhất để hiển thị nhanh trên dashboard cho cả admin và user
   const latestNotifications = await fastify.mongo.db.collection('notifications')
     .find()
     .sort({ pinned: -1, createdAt: -1 })
     .limit(5)
     .toArray()
-  // Nếu là admin → lấy thêm số liệu tổng hợp
+  //2. phân quyền Nếu là admin → lấy thêm số liệu tổng hợp
   if (req.user.role === 'admin') {
     const [employeeCount, departmentCount, pendingSalaryCount, contracts, employees, employeesForRaiseCheck] = await Promise.all([
       fastify.mongo.db.collection('employees').countDocuments({ employeeCode: { $exists: true, $ne: '' } }),
@@ -487,7 +487,7 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
       fastify.mongo.db.collection('provisional_salaries').countDocuments({ status: 'pending' }),
       fastify.mongo.db.collection('contracts').find().toArray(),
       fastify.mongo.db.collection('employees').find({}, { projection: { name: 1 } }).toArray(),
-      // Chỉ cần lấy đúng những trường liên quan đến việc xét tăng lương để nhẹ truy vấn
+      // danh sách nhân viên xét tăng lương chỉ lấy các trường cần thiết như :name,employeeCode,department,hạn thăng lương,ngày tăng lương gần nhất
       fastify.mongo.db.collection('employees').find(
         { employeeCode: { $exists: true, $ne: '' }, status: { $ne: 'Đã nghỉ việc' } },
         { projection: { name: 1, employeeCode: 1, department: 1, joinDate: 1, lastRaiseDate: 1 } }
@@ -495,14 +495,16 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
     ])
 
     const employeeNameById = new Map(employees.map(employee => [employee._id.toString(), employee.name || 'Chưa rõ nhân viên']))
+    //kiểm tra hợp đồng sắp hết hạn
     const expiringContracts = contracts
       .map(contract => {
+        //tính ngày hết hạn
         const endDate = parseContractEndDate(contract.signDate, contract.duration, contract.contractType)
 
         if (!endDate) {
           return null
         }
-
+        //tính số ngày còn lại
         const daysUntilExpiration = calculateDaysUntil(endDate)
         if (daysUntilExpiration < 0 || daysUntilExpiration > 30) {
           return null
@@ -518,17 +520,17 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
       .filter(Boolean)
       .sort((left, right) => left.daysUntilExpiration - right.daysUntilExpiration)
 
-    // Nhân viên "sắp đến hạn xét tăng lương": tính từ lastRaiseDate (nếu đã từng tăng)
-    // hoặc joinDate (nếu chưa từng tăng lương lần nào), cộng thêm chu kỳ xét lương.
+    //Kiểm tra nhân viên đến kỳ thăng lương
     const employeesDueForRaise = employeesForRaiseCheck
       .map(emp => {
         const baseDate = emp.lastRaiseDate || emp.joinDate
+        //tính ngày xét lương tiếp theo
         const nextReviewDate = calculateNextSalaryReviewDate(baseDate)
 
         if (!nextReviewDate) {
           return null // Chưa có dữ liệu ngày vào làm/ngày tăng lương → không tính được, bỏ qua
         }
-
+        //tính số ngày còn lại
         const daysUntilReview = calculateDaysUntil(nextReviewDate)
         if (daysUntilReview < 0 || daysUntilReview > SALARY_REVIEW_WARNING_DAYS) {
           return null
@@ -545,7 +547,7 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
       })
       .filter(Boolean)
       .sort((left, right) => left.daysUntilReview - right.daysUntilReview)
-
+    //tạo dữ liệu dashboad
     dashboardStats = {
       employeeCount,
       departmentCount,
@@ -555,7 +557,7 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
       employeesDueForRaise
     }
   }
-
+  //trả về giao diện
   return reply.view('dashboard.pug', { user: req.user, dashboardStats, latestNotifications })
 })
 

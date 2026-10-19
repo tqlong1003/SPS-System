@@ -1,0 +1,168 @@
+doctype html
+html
+  head
+    title Chi tiết khách hàng - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 Chi tiết khách hàng
+          p Thông tin khách hàng và các đơn hàng đã mua
+
+        a.btn(href="/customers" style="display: inline-block; margin-bottom: 16px; text-decoration: none;")
+          | Quay lại danh sách khách hàng
+        if !customer.userId
+          a.btn(href=`/register?customerId=${customer._id}` style="display: inline-block; margin: 0 0 16px 8px; text-decoration: none; background:#137333; color:white;")
+            i.fas.fa-user-plus(style="margin-right: 6px;")
+            | Cấp tài khoản đăng nhập
+
+        .stats-grid
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Mã khách hàng
+              h2(style="font-size: 1.1rem; word-break: break-word;")= customer.customerCode
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Tên khách hàng
+              h2(style="font-size: 1.1rem; word-break: break-word;")= customer.name
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Địa chỉ
+              h2(style="font-size: 1.1rem; word-break: break-word;")= customer.address || 'Chưa có'
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Số điện thoại
+              h2(style="font-size: 1.1rem; word-break: break-word;")= customer.phone || 'Chưa có'
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Email
+              h2(style="font-size: 1.1rem; word-break: break-word;")= customer.email || 'Chưa có'
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Người phụ trách
+              h2(style="font-size: 1.1rem; word-break: break-word;")= assignedStaffName
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Ngày sinh
+              h2(style="font-size: 1.1rem; word-break: break-word;")
+                = customer.birthDate || 'Chưa có'
+                if customer.birthDate
+                  |  🎂
+
+        h3.customer-section-title
+          | Đơn hàng đã mua
+        .table-container(style="margin-bottom: 24px;")
+          table
+            thead
+              tr
+                th Mã đơn
+                th Sản phẩm
+                th Ngày mua
+                th Trạng thái
+            tbody
+              if orders && orders.length > 0
+                each o in orders
+                  tr
+                    td(style="font-weight:bold;")= o.orderCode
+                    td= (o.items || []).map(i => `${i.productName} x${i.quantity}`).join(', ')
+                    td= o.createdAtText
+                    td
+                      if o.status === 'confirmed'
+                        span(style="background:#e6f4ea; color:#137333; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Đã xác nhận
+                      else
+                        span(style="background:#e8f0fe; color:#1a73e8; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Đang xử lý
+              else
+                tr
+                  td(colspan="4", style="text-align:center; padding: 16px;") Khách hàng chưa có đơn hàng nào
+
+        h3.customer-section-title
+          | Phiếu bảo hành
+        .table-container(style="margin-bottom: 24px;")
+          table
+            thead
+              tr
+                th Mã phiếu
+                th Sản phẩm
+                th Ngày mua
+                th Hết hạn
+                th Trạng thái
+            tbody
+              if warranties && warranties.length > 0
+                each w in warranties
+                  tr
+                    td(style="font-weight:bold;")= w.warrantyCode
+                    td= w.productName
+                    td= w.purchaseDate
+                    td= w.expiryDate || 'Không có'
+                    td= w.effectiveStatus
+              else
+                tr
+                  td(colspan="5", style="text-align:center; padding: 16px;") Khách hàng chưa có phiếu bảo hành nào
+
+        h3.customer-section-title
+          | Nhắc lịch chăm sóc
+        .table-container(style="margin-bottom: 16px; padding: 16px;")
+          if reminders && reminders.length > 0
+            each r in reminders
+              div(style="padding: 10px 0; border-bottom: 1px solid #111827; display:flex; justify-content:space-between; align-items:center;")
+                div
+                  span(style=`font-weight:700; margin-right:8px; color:${r.status === 'Đã hoàn thành' ? '#137333' : (r.isOverdue ? '#c5221f' : '#1a73e8')};`)= r.dueDateText
+                  span(style="font-size:0.85em; color:#888;")= r.status === 'Đã hoàn thành' ? '(Đã hoàn thành)' : (r.isOverdue ? '(Quá hạn)' : '(Chờ thực hiện)')
+                  div= r.note
+                if r.status !== 'Đã hoàn thành'
+                  a.btn-edit(href=`/reminders/done/${r._id}` style="white-space:nowrap;") Đánh dấu xong
+          else
+            div(style="text-align:center; padding: 8px; color: #888;") Chưa có lịch nhắc chăm sóc nào cho khách hàng này
+
+          form(method="POST" action=`/customers/${customer._id}/reminders` style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;")
+            .form-group(style="margin:0;")
+              label Ngày hẹn chăm sóc
+              input(type="date" name="dueDate" required)
+            .form-group(style="margin:0; flex:1; min-width:220px;")
+              label Nội dung cần làm
+              input(name="note" placeholder="VD: Gọi hỏi thăm sau 1 tháng sử dụng")
+            button.btn-save(type="submit" style="height:42px;") Đặt lịch nhắc
+
+        h3.customer-section-title
+          | Lịch sử chăm sóc khách hàng
+        .table-container(style="margin-bottom: 24px; padding: 16px;")
+          if activities && activities.length > 0
+            each a in activities
+              div(style="padding: 12px 16px; border-bottom: 1px solid #111827;")
+                div(style="display:flex; justify-content: space-between; font-size: 0.85em; color: #888;")
+                  span= a.type
+                  span= a.createdAtText + ' · ' + a.createdByName
+                div(style="margin-top: 4px;")= a.note
+          else
+            div(style="text-align:center; padding: 16px; color: #888;") Chưa có lịch sử chăm sóc nào cho khách hàng này
+
+          form(method="POST" action=`/customers/${customer._id}/activities` style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; border-top: 1px solid #eee; padding-top: 14px;")
+            .form-group(style="margin:0;")
+              label Hình thức
+              select(name="type")
+                each t in activityTypes
+                  option(value=t)= t
+            .form-group(style="margin:0; flex:1; min-width:220px;")
+              label Nội dung đã trao đổi với khách
+              input(name="note" placeholder="VD: Đã gọi tư vấn, khách hẹn tuần sau ghé cửa hàng" required)
+            button.btn-save(type="submit" style="height:42px;") Ghi lại
+
+    include _script.pug

@@ -1,0 +1,68 @@
+doctype html
+html
+  head
+    title Phiếu bảo hành - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        form.search-bar(method="GET", action="/warranties")
+          i.fas.fa-search
+          input(type="text", name="keyword", value=searchKeyword || '', placeholder="Tìm theo mã phiếu bảo hành...")
+          button(type="submit", style="border: none; background: var(--primary); color: white; padding: 8px 14px; border-radius: 8px; cursor: pointer;") Tìm
+          if searchKeyword
+            a(href="/warranties", style="color: var(--text-secondary); text-decoration: none; font-weight: 600;") Xóa
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 🛡️ Phiếu bảo hành
+          p= user.role === 'admin' ? 'Danh sách và thời hạn bảo hành các sản phẩm đã bán' : 'Phiếu bảo hành bạn đang phụ trách'
+
+        if showExpiringOnly
+          div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #eff6ff; color: #1d4ed8; font-weight: 600;")
+            | Đang hiển thị danh sách phiếu bảo hành sắp hết hạn trong 30 ngày tới.
+
+        .table-container
+          table
+            thead
+              tr
+                th Mã phiếu
+                th Mã đơn hàng
+                th Khách hàng
+                th Sản phẩm
+                th Ngày mua
+                th Hết hạn
+                th Trạng thái
+                th Hành động
+            tbody
+              if warranties && warranties.length > 0
+                each w in warranties
+                  tr
+                    td(style="font-weight: bold;")= w.warrantyCode
+                    td
+                      if w.orderCode
+                        a(href=`/orders/detail/${w.orderId}`, style="color: var(--primary); font-weight: 600; text-decoration: none;")= w.orderCode
+                      else
+                        span(style="color: var(--text-secondary);") -
+                    td= w.customerName
+                    td= w.productName
+                    td= w.purchaseDate
+                    td= w.expiryDate || 'Không có'
+                    td
+                      - var wStatus = w.effectiveStatus
+                      span(style=`font-weight:600; color:${wStatus === 'Hết hạn' ? '#c5221f' : (wStatus === 'Đã bảo hành xong' ? '#137333' : '#1a73e8')};`)= wStatus
+                    td
+                      a.btn-edit(href=`/warranties/edit/${w._id}`) Sửa
+                      if user.role === 'admin'
+                        a.btn-delete(href=`/warranties/delete/${w._id}`, onclick="return confirm('Xác nhận xóa?')", style="margin-left: 5px;") Xóa
+              else
+                tr
+                  td(colspan="8", style="text-align: center; padding: 20px;")= searchKeyword ? 'Không tìm thấy phiếu bảo hành phù hợp' : 'Chưa có phiếu bảo hành nào'
+
+    include _script.pug

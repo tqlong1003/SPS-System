@@ -1,0 +1,90 @@
+doctype html
+html
+  head
+    title Thông báo - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    //- Cùng 1 trang cho 2 vai trò: khách hàng (/my/announcements) và nhân viên/admin (/announcements)
+    - var isCustomer = user.role === 'customer'
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          if isCustomer
+            h1 🔔 Thông báo từ cửa hàng
+            p Chương trình tri ân, khuyến mãi và tin mới dành cho bạn
+          else
+            h1 📢 Thông báo khách hàng
+            p= user.role === 'admin' ? 'Toàn bộ thông báo đã gửi tới khách hàng' : 'Các thông báo bạn đã gửi tới khách hàng'
+
+        if isCustomer && !customer
+          p.alert-error Tài khoản chưa được liên kết với hồ sơ khách hàng. Vui lòng liên hệ cửa hàng.
+        else
+          if !isCustomer
+            a.btn-add(href="/announcements/add" style="margin-bottom: 15px;")
+              i.fas.fa-plus
+              |  Soạn thông báo mới
+
+          .table-container
+            table
+              thead
+                tr
+                  th Tiêu đề
+                  th Loại
+                  if isCustomer
+                    th Hạn áp dụng
+                    th Ngày nhận
+                  else
+                    th Đối tượng nhận
+                    if user.role === 'admin'
+                      th Người gửi
+                    th Ngày gửi
+                    th Đã đọc
+                  th Hành động
+              tbody
+                if announcements && announcements.length > 0
+                  each a in announcements
+                    tr
+                      td(style=(isCustomer && !a.isRead ? 'font-weight: bold;' : ''))
+                        = a.title
+                        if isCustomer && !a.isRead
+                          span(style="margin-left:8px; background:#fce8e6; color:#c5221f; padding:2px 8px; border-radius:10px; font-size:0.75em; font-weight:600;") Mới
+                      td= a.type
+                      if isCustomer
+                        td
+                          if a.validUntilText
+                            = a.validUntilText
+                            if a.expired
+                              span(style="margin-left:6px; color:#888; font-size:0.85em;") (đã hết hạn)
+                          else
+                            | -
+                        td= a.createdAtText
+                        td
+                          a.btn-edit(href=`/my/announcements/${a._id}`, style="background:#5f6368;") Xem
+                      else
+                        td(style="font-size: 0.9em;")= a.audienceText
+                        if user.role === 'admin'
+                          td= a.createdByName
+                        td= a.createdAtText
+                        td= `${a.readCount}/${a.total}`
+                        td
+                          a.btn-edit(href=`/announcements/detail/${a._id}`, style="background:#5f6368; margin-right:5px;") Xem
+                          form(method="POST" action=`/announcements/delete/${a._id}` onsubmit="return confirm('Thu hồi thông báo này? Khách hàng sẽ không còn thấy thông báo nữa.')" style="display:inline;")
+                            button.btn-delete(type="submit" style="border:none; cursor:pointer;") Thu hồi
+                else
+                  tr
+                    td(colspan=(isCustomer ? 5 : (user.role === 'admin' ? 7 : 6)), style="text-align: center; padding: 20px;")= isCustomer ? 'Bạn chưa có thông báo nào' : 'Chưa có thông báo nào được gửi'
+
+    include _script.pug

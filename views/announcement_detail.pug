@@ -1,0 +1,105 @@
+doctype html
+html
+  head
+    title Chi tiết thông báo - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    //- Cùng 1 trang cho 2 vai trò: khách hàng (/my/announcements/:id) và nhân viên/admin (/announcements/detail/:id)
+    - var isCustomer = user.role === 'customer'
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1= announcement.title
+          p= announcement.type
+
+        .stats-grid
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Loại thông báo
+              h2(style="font-size: 1.1rem;")= announcement.type
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span= isCustomer ? 'Ngày nhận' : 'Ngày gửi'
+              h2(style="font-size: 1.1rem;")= announcement.createdAtText
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Hạn áp dụng
+              h2(style="font-size: 1.1rem;")
+                if announcement.validUntilText
+                  = announcement.validUntilText
+                  if announcement.expired
+                    span(style="margin-left:6px; color:#c5221f; font-size:0.8em;") (đã hết hạn)
+                else
+                  | Không giới hạn
+          if !isCustomer
+            .stat-card
+              .stat-info(style="min-width: 0;")
+                span Đối tượng nhận
+                h2(style="font-size: 1.1rem; word-break: break-word;")= announcement.audienceText
+            .stat-card
+              .stat-info(style="min-width: 0;")
+                span Người gửi
+                h2(style="font-size: 1.1rem; word-break: break-word;")= announcement.createdByName
+            .stat-card
+              .stat-info(style="min-width: 0;")
+                span Đã gửi tới
+                h2(style="font-size: 1.1rem;")= `${announcement.recipientCount} khách hàng`
+            .stat-card
+              .stat-info(style="min-width: 0;")
+                span Đã đọc
+                h2(style="font-size: 1.1rem;")= `${readCount}/${announcement.recipientCount}`
+            if announcement.skippedNoAccount
+              .stat-card
+                .stat-info(style="min-width: 0;")
+                  span Chưa nhận được (chưa có tài khoản)
+                  h2(style="font-size: 1.1rem;")= `${announcement.skippedNoAccount} khách hàng`
+
+        h3(style="color: white; margin: 20px 0 10px;") Nội dung
+        .table-container(style="margin-bottom: 24px; padding: 16px; white-space: pre-wrap; word-break: break-word;")= announcement.content
+
+        //- NHÂN VIÊN/ADMIN: theo dõi từng khách đã đọc hay chưa
+        if !isCustomer
+          h3(style="color: white; margin: 20px 0 10px;") Tình trạng đã đọc
+          .table-container(style="margin-bottom: 24px;")
+            table
+              thead
+                tr
+                  th Khách hàng
+                  th Số điện thoại
+                  th Trạng thái
+              tbody
+                if recipients && recipients.length > 0
+                  each r in recipients
+                    tr
+                      td(style="font-weight:bold;")
+                        a(href=`/customers/detail/${r.customerId}` style="color:inherit;")= r.customerName
+                      td= r.customerPhone || '-'
+                      td
+                        if r.isRead
+                          span(style="background:#e6f4ea; color:#137333; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;")= `Đã đọc ${r.readAtText}`
+                        else
+                          span(style="background:#eceff1; color:#546e7a; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Chưa đọc
+                else
+                  tr
+                    td(colspan="3", style="text-align:center; padding:16px;") Không có người nhận
+
+        div(style="margin-bottom: 16px; display:flex; gap:8px; flex-wrap:wrap;")
+          if !isCustomer
+            form(method="POST" action=`/announcements/delete/${announcement._id}` onsubmit="return confirm('Thu hồi thông báo này? Khách hàng sẽ không còn thấy thông báo nữa.')" style="display:inline;")
+              button.btn-delete(type="submit" style="border:none; cursor:pointer;") Thu hồi thông báo
+          a.btn(href=(isCustomer ? '/my/announcements' : '/announcements') style="display:inline-block; text-decoration:none;") Quay lại danh sách
+
+    include _script.pug

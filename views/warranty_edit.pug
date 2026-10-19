@@ -1,0 +1,56 @@
+doctype html
+html
+  head
+    title Sửa phiếu bảo hành - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-shield-halved
+            h2 Cập nhật phiếu bảo hành
+
+          form(method="POST" action=`/warranties/edit/${warranty._id}`)
+            .form-group
+              label Khách hàng
+              select(name="customerId" required)
+                each c in customers
+                  option(value=c._id selected=(warranty.customerId && warranty.customerId.toString() === c._id.toString()))= c.name
+            .form-group
+              label Sản phẩm
+              select(name="productId" required)
+                each p in products
+                  option(value=p._id selected=(warranty.productId && warranty.productId.toString() === p._id.toString()))= `${p.name} (${p.sku})`
+            .form-group
+              label Ngày mua
+              input(type="date" name="purchaseDate" value=warranty.purchaseDate required)
+            .form-group
+              label Thời hạn bảo hành (tháng)
+              input(type="number" name="warrantyMonths" min="1" value=warranty.warrantyMonths required)
+            .form-group
+              label Trạng thái xử lý
+              select(name="status")
+                option(value="Còn bảo hành" selected=(warranty.status !== 'Đã bảo hành xong')) Còn bảo hành / đang trong hạn (tự tính theo ngày hết hạn)
+                option(value="Đã bảo hành xong" selected=(warranty.status === 'Đã bảo hành xong')) Đã bảo hành xong (đã xử lý xong lượt bảo hành/sửa chữa này)
+              p(style="font-size:0.85em; color:#888; margin-top:4px;") Trạng thái "Còn bảo hành" / "Hết hạn" được hệ thống tự tính theo ngày hết hạn, bạn chỉ cần chọn "Đã bảo hành xong" khi đã xử lý xong cho khách.
+            .form-group
+              label Ghi chú
+              input(name="note" value=warranty.note)
+
+            .form-actions
+              button.btn-save(type="submit") Lưu thay đổi
+              a.btn-cancel(href="/warranties") Hủy
+
+    include _script.pug

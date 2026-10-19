@@ -1,0 +1,66 @@
+doctype html
+html
+  head
+    title Soạn thông báo - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+    style.
+      .card-form textarea {
+        width: 100%; padding: 10px 12px; border: 1px solid #d0d5dd; border-radius: 8px;
+        font-family: inherit; font-size: 0.95rem; resize: vertical; box-sizing: border-box;
+      }
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form(style="max-width: 750px;")
+          .card-header
+            i.fas.fa-bullhorn
+            h2 Soạn thông báo gửi khách hàng
+
+          if error
+            p.alert-error(style="font-weight: 600;")
+              i.fas.fa-triangle-exclamation
+              |  #{error}
+
+          p(style="color:#888; font-size:0.9em;") Chỉ khách hàng đã được cấp tài khoản đăng nhập mới nhận và xem được thông báo.
+
+          form(method="POST" action="/announcements/add")
+            .form-group
+              label Loại thông báo
+              select(name="type")
+                each t in types
+                  option(value=t, selected=(form.type === t))= t
+
+            .form-group
+              label Gửi tới
+              select(name="audience")
+                each o in audienceOptions
+                  option(value=o.value, selected=(form.audience === o.value))= o.label
+
+            .form-group
+              label Tiêu đề
+              input(name="title" maxlength=titleMax required value=form.title || '' placeholder="VD: Tri ân khách hàng thân thiết - giảm 10% phụ kiện")
+
+            .form-group
+              label Nội dung
+              textarea(name="content" rows="8" maxlength=contentMax required placeholder="Nội dung chương trình, điều kiện áp dụng, cách nhận ưu đãi...")= form.content || ''
+
+            .form-group
+              label Hạn áp dụng (không bắt buộc)
+              input(type="date" name="validUntil" min=minDate value=form.validUntil || '')
+
+            .form-actions
+              button.btn-save(type="submit" onclick="return confirm('Gửi thông báo này tới khách hàng?')") Gửi thông báo
+              a.btn-cancel(href="/announcements") Hủy
+
+    include _script.pug

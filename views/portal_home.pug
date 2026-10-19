@@ -1,0 +1,83 @@
+doctype html
+html
+  head
+    title Trang chủ khách hàng - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-store
+          span(style="padding: 8px 0; color: var(--text-secondary);") Cổng khách hàng PhoneShop
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 👋 Xin chào, #{user.name || user.username}
+          p Theo dõi đơn hàng và bảo hành điện thoại của bạn tại PhoneShop
+
+        if !customer
+          .card-form
+            p.alert-error Tài khoản của bạn chưa được liên kết với hồ sơ khách hàng. Vui lòng liên hệ cửa hàng để được hỗ trợ.
+        else
+          if isBirthdayMonth
+            div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #fdf2f8; color: #be185d; font-weight: 600;")
+              | 🎂 Tháng này là sinh nhật của bạn - PhoneShop chúc bạn một sinh nhật thật vui!
+
+          .stats-grid
+            .stat-card
+              .stat-icon.blue
+                i.fas.fa-receipt
+              .stat-info
+                span Tổng số đơn hàng
+                h2= stats.orderCount
+            .stat-card
+              .stat-icon.orange
+                i.fas.fa-hourglass-half
+              .stat-info
+                span Đơn đang xử lý
+                h2= stats.openOrderCount
+            .stat-card
+              .stat-icon.green
+                i.fas.fa-shield-halved
+              .stat-info
+                span Bảo hành còn hạn
+                h2= stats.activeWarrantyCount
+
+          if stats.expiringWarranties.length
+            div(style="margin: 20px 0; padding: 14px 16px; border-radius: 10px; background: #fff7ed; color: #c2410c;")
+              strong
+                i.fas.fa-triangle-exclamation(style="margin-right:6px;")
+                | Bảo hành sắp hết hạn trong 30 ngày tới
+              ul(style="margin: 8px 0 0 18px; padding: 0;")
+                each w in stats.expiringWarranties
+                  li= `${w.productName} (${w.warrantyCode}) - còn ${w.daysLeft} ngày, hết hạn ${w.expiryDate}`
+              a(href="/my/warranties" style="display:inline-block; margin-top:8px; color:#c2410c; font-weight:600;") Xem tất cả bảo hành →
+
+          h3(style="margin: 24px 0 12px;") Đơn hàng gần đây
+          .table-container
+            table
+              thead
+                tr
+                  th Mã đơn
+                  th Sản phẩm
+                  th Ngày mua
+              tbody
+                if recentOrders && recentOrders.length
+                  each o in recentOrders
+                    tr
+                      td(style="font-weight: bold;")= o.orderCode
+                      td(style="font-size: 0.85em; color: #555;")= o.itemSummary
+                      td= o.createdAtText
+                else
+                  tr
+                    td(colspan="3" style="text-align:center; padding:20px;") Bạn chưa có đơn hàng nào
+          a(href="/my/orders" style="display:inline-block; margin-top:10px; color: var(--primary); font-weight:600; text-decoration:none;") Xem tất cả đơn hàng →
+
+    include _script.pug

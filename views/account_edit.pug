@@ -1,0 +1,47 @@
+doctype html
+html
+  head
+    title Sửa tài khoản - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        - var roleLabels = { admin: 'Quản trị viên (Admin)', user: 'Nhân viên bán hàng', customer: 'Khách hàng' }
+
+        .card-form
+          .card-header
+            i.fas.fa-user-pen
+            h2 Cập nhật tài khoản: #{account.username}
+
+          form(method="POST" action=`/accounts/edit/${account._id}`)
+            .form-group
+              label Họ và tên
+              input(name="name" value=account.name required)
+            .form-group
+              label Số điện thoại
+              input(name="phone" value=account.phone)
+            .form-group
+              label Vai trò (không thể thay đổi)
+              input(type="text" value=(roleLabels[account.role] || 'Không xác định') disabled)
+
+            if account.role === 'customer'
+              p(style="color:#6b7280; font-size:0.9rem; margin: 0 0 16px;")
+                i.fas.fa-link(style="margin-right:6px;")
+                | Tên và SĐT sẽ được đồng bộ sang hồ sơ khách hàng liên kết.
+
+            .form-actions
+              button.btn-save(type="submit") Lưu thay đổi
+              a.btn-cancel(href="/accounts") Hủy
+
+    include _script.pug

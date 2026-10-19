@@ -1,0 +1,83 @@
+doctype html
+html
+head
+  title PhoneShop CRM - Sửa nhân viên
+  link(rel="stylesheet", href="/public/style.css")
+  link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+
+body.dashboard-body
+  include sidebar.pug
+
+  main.main-content
+    header.topbar
+      .search-bar
+        i.fas.fa-search
+        input(type="text" placeholder="Tìm kiếm nhanh...")
+
+      .user-info
+        span.welcome Xin chào,
+          strong= user.name || user.username
+        .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+    .content-wrapper
+      .card-form
+        .card-header
+          i.fas.fa-user-pen
+          h2 Sửa thông tin nhân viên
+
+        form(method="POST" action=`/employees/edit/${employee._id}`)
+          .form-group
+            label Mã nhân viên
+            input(type="text" value=employee.employeeCode disabled)
+
+          .form-group
+            label Họ và tên
+            input(type="text" name="name" value=employee.name required)
+
+          .form-group
+            label Năm sinh
+            input(type="number" name="birthYear" value=employee.birthYear min="1950" max="2015")
+
+          .form-group
+            label Giới tính
+            select(name="gender")
+              each g in genders
+                option(value=g selected=(employee.gender === g))= g
+
+          .form-group
+            label Số điện thoại
+            input(type="text" name="phone" value=employee.phone)
+
+          .form-group
+            label Email
+            input(type="email" name="email" value=employee.email)
+
+          .form-group
+            label Chức vụ
+            input(type="text" value="Nhân viên" readonly)
+
+          
+
+          .form-group
+            label Ngày vào làm
+            input(type="date" name="startDate" value=employee.startDate)
+
+          .form-group
+            label Trạng thái
+            select(name="status")
+              each s in statuses
+                option(value=s selected=(employee.status === s))= s
+
+          .form-group
+            label Địa chỉ
+            input(type="text" name="address" value=employee.address)
+
+          .form-group
+            label Ghi chú
+            input(type="text" name="note" value=employee.note)
+
+          .form-actions
+            button.btn-save(type="submit") Cập nhật
+            a.btn-cancel(href="/employees") Hủy
+
+  include _script.pug

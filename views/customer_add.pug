@@ -1,0 +1,55 @@
+doctype html
+html
+  head
+    title Thêm khách hàng - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-user-plus
+            h2 Thêm khách hàng mới
+
+          form(method="POST" action="/customers/add")
+            .form-group
+              label Mã khách hàng (để trống sẽ tự sinh)
+              input(name="customerCode" placeholder="VD: KH-000123")
+            .form-group
+              label Họ và tên
+              input(name="name" required)
+            .form-group
+              label Số điện thoại
+              input(name="phone")
+            .form-group
+              label Email
+              input(type="email" name="email")
+            .form-group
+              label Địa chỉ
+              input(name="address")
+            .form-group
+              label Ngày sinh
+              input(type="date" name="birthDate")
+            .form-group
+              label Nhân viên phụ trách
+              select(name="assignedTo")
+                option(value="") -- Tự phân công cho tôi --
+                each s in staffList
+                  option(value=s._id)= s.name || s.username
+
+            .form-actions
+              button.btn-save(type="submit") Lưu khách hàng
+              a.btn-cancel(href="/customers") Hủy
+
+    include _script.pug

@@ -1,72 +1,137 @@
 doctype html
 html
   head
-    title Cấp tài khoản | SPS System
+    title Cấp tài khoản | PhoneShop CRM
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+
   body.dashboard-body
-    // Sidebar bên trái
+
     include sidebar.pug
 
-    // Khu vực nội dung bên phải
     main.main-content
+
       header.topbar
         .search-bar
           i.fas.fa-search
           input(type="text" placeholder="Tìm kiếm...")
         .user-info
-          span.welcome Xin chào, 
-            strong #{user.username}
-          .avatar #{user.username.charAt(0).toUpperCase()}
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
 
       .content-wrapper
-        .form-container-card(style="max-width: 500px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);")
-          h2(style="margin-bottom: 20px; color: var(--text-dark); display: flex; align-items: center; gap: 10px;") 
-            i.fas.fa-user-plus(style="color: var(--primary);")
-            | Cấp tài khoản mới
-          
+        - var f = form || {}
+        - var selectedCustomerId = f.customerId || prefillCustomerId || ''
+        - var isAdminUser = user.role === 'admin'
+        //- Nhân viên chỉ cấp được tài khoản khách hàng
+        - var isCustomerRole = !isAdminUser || f.role === 'customer' || (!!prefillCustomerId && !f.role)
+
+        .card-form(style="margin: 0 auto;")
+
+          .card-header
+            i.fas.fa-user-plus
+            h2 Cấp tài khoản mới
+
           if error
-            p(style="color: #ef4444; background: #fee2e2; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 0.9rem;")
+            p.alert-error
               i.fas.fa-exclamation-circle(style="margin-right: 5px")
               | #{error}
-          
+
           form(method="POST" action="/register")
+
+            if isAdminUser
+              .form-group
+                label Loại tài khoản
+                select#roleSelect(name="role")
+                  option(value="user" selected=!isCustomerRole) Nhân viên
+                  option(value="customer" selected=isCustomerRole) Khách hàng
+            else
+              input#roleSelect(type="hidden" name="role" value="customer")
+              .form-group
+                label Loại tài khoản
+                input(type="text" value="Khách hàng" readonly)
+
             .form-group
-              label Mã nhân viên
-              input(name="employeeCode" required)
+              label Họ và tên
+              input(type="text" name="name" value=f.name)
+
             .form-group
-              label Tên nhân viên
-              input(name="name" required)
-            .form-group(style="margin-bottom: 15px;")
-              label(style="display: block; margin-bottom: 5px; font-weight: 600;") Tên đăng nhập nhân viên
-              input(name="username" placeholder="Nhập tên đăng nhập" required minlength="3" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;")
-            .form-group(style="margin-bottom: 15px;")
-              label(style="display: block; margin-bottom: 5px; font-weight: 600;") Mật khẩu mặc định
-              input(type="password" name="password" placeholder="Tối thiểu 6 ký tự" required minlength="6" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;")
-            button(type="submit" style="width: 100%; padding: 12px; background: var(--bg-gradient); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 700; margin-top: 10px;")
+              label Tên đăng nhập
+              input(type="text" name="username" required minlength="3" value=f.username)
+
+            .form-group
+              label Mật khẩu mặc định
+              input(type="password" name="password" required minlength="6")
+
+            .form-group
+              label Số điện thoại
+              input(type="text" name="phone" value=f.phone)
+
+            //- ===== Nhân viên =====
+            if isAdminUser
+              #staffBox(style=isCustomerRole ? 'display:none;' : '')
+                .form-group
+                  label Chức vụ
+                  input(type="text" value="Nhân viên" readonly)
+
+            //- ===== Khách hàng =====
+            #customerBox(style=isCustomerRole ? '' : 'display:none;')
+              .form-group
+                label Hồ sơ khách hàng
+                select#customerSelect(name="customerId")
+                  option(value="") -- Tạo hồ sơ khách hàng mới --
+                  each c in linkableCustomers
+                    option(value=c._id selected=(String(c._id) === String(selectedCustomerId)))= `${c.customerCode || ''} - ${c.name} (${c.phone || 'chưa có SĐT'})`
+
+              #newCustomerFields
+                .form-group
+                  label Mã khách hàng (để trống sẽ tự sinh)
+                  input(type="text" name="customerCode" value=f.customerCode)
+                .form-group
+                  label Email
+                  input(type="email" name="email" value=f.email)
+                .form-group
+                  label Địa chỉ
+                  input(type="text" name="address" value=f.address)
+                .form-group
+                  label Ngày sinh
+                  input(type="date" name="birthDate" value=f.birthDate)
+                if isAdminUser
+                  .form-group
+                    label Nhân viên phụ trách
+                    select(name="assignedTo")
+                      option(value="") -- Chưa phân công --
+                      each s in staffList
+                        option(value=s._id selected=(String(s._id) === String(f.assignedTo)))= s.name || s.username
+                else
+                  .form-group
+                    label Nhân viên phụ trách
+                    input(type="text" value=(user.name || user.username) readonly)
+
+            button(type="submit")
               i.fas.fa-plus-circle(style="margin-right: 8px;")
               | Tạo tài khoản ngay
 
-              // Script xử lý đóng/mở mượt mà cho Dropdown Menu
-    script.
-      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
-        item.addEventListener('click', function(e) {
-          e.preventDefault();
-          const menuGroup = this.closest('.menu-group');
-          const submenu = menuGroup.querySelector('.submenu');
-          const toggleIcon = this.querySelector('.toggle-icon');
-          
-          // Đóng các menu khác
-          document.querySelectorAll('.submenu').forEach(sub => {
-            if (sub !== submenu) {
-              sub.classList.remove('show');
-              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
-              if (icon) icon.classList.remove('rotate');
-            }
-          });
+    include _script.pug
 
-          // Bật/tắt menu hiện tại
-          submenu.classList.toggle('show');
-          toggleIcon.classList.toggle('rotate');
-        });
-      });
+    script.
+      (function () {
+        var role = document.getElementById('roleSelect')
+        var staffBox = document.getElementById('staffBox') // null với nhân viên (không có form cấp TK nhân viên)
+        var customerBox = document.getElementById('customerBox')
+        var customerSelect = document.getElementById('customerSelect')
+        var newFields = document.getElementById('newCustomerFields')
+
+        function sync() {
+          var isCustomer = role.value === 'customer'
+          if (staffBox) staffBox.style.display = isCustomer ? 'none' : ''
+          customerBox.style.display = isCustomer ? '' : 'none'
+          // Chọn hồ sơ có sẵn thì không cần nhập thông tin hồ sơ mới
+          newFields.style.display = customerSelect.value ? 'none' : ''
+        }
+
+        role.addEventListener('change', sync)
+        customerSelect.addEventListener('change', sync)
+        sync()
+      })()

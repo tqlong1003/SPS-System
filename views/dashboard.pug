@@ -1,137 +1,156 @@
 doctype html
 html
-  head
-    title HRM System - Dashboard
-    link(rel="stylesheet", href="/public/style.css")
-    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
-  body.dashboard-body
-    // Sidebar bên trái
-    include sidebar.pug
+head
+title PhoneShop CRM - Dashboard
+link(rel="stylesheet", href="/public/style.css")
+link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
 
-    // Khu vực bên phải
-    main.main-content
-      header.topbar
-        .search-bar
-          i.fas.fa-search
-          input(type="text" placeholder="Tìm kiếm nhanh...")
-        
-        .user-info
-          span.welcome Xin chào, 
-            strong #{user.username}
-          .avatar #{user.username.charAt(0).toUpperCase()}
+body.dashboard-body
+include sidebar.pug
 
-      .content-wrapper
-        .welcome-banner
-          h1 👋 Chào mừng, #{user.username}
-          p Quản lý hệ thống nhân sự một cách hiệu quả và nhanh chóng
 
-        .dashboard-notifications
-          .dashboard-notifications-header
-            h3
-              i.fas.fa-bullhorn
-              |  Thông báo mới nhất
-            a(href="/notifications") Xem tất cả →
-          if latestNotifications && latestNotifications.length > 0
-            each n in latestNotifications
-              a.dashboard-notification-item(href="/notifications")
-                span.notification-badge.announce Thông báo
-                .dashboard-notification-text
-                  strong= n.title
-                  span= new Date(n.createdAt).toLocaleString('vi-VN')
-          else
-            p.dashboard-notification-empty Hiện chưa có thông báo nào được đăng
+main.main-content
+  header.topbar
+    .search-bar
+      i.fas.fa-search
+      input(type="text" placeholder="Tìm kiếm nhanh...")
 
-        if user.role === 'admin' && dashboardStats && dashboardStats.employeesDueForRaise && dashboardStats.employeesDueForRaise.length > 0
-          .dashboard-notifications
-            .dashboard-notifications-header
-              h3
-                i.fas.fa-arrow-trend-up
-                |  Nhân viên sắp đến hạn xét tăng lương
-              a(href="/employees") Xem danh sách nhân viên →
-            each item in dashboardStats.employeesDueForRaise
-              a.dashboard-notification-item(href="/employees")
-                span.notification-badge.announce= item.daysUntilReview + ' ngày'
-                .dashboard-notification-text
-                  strong= `${item.employeeName} (${item.employeeCode}) - ${item.department}`
-                  span= `Đến hạn xét lương: ${item.nextReviewDate} • ${item.basis}`
+    .user-info
+      span.welcome Xin chào,
+        strong= user.name || user.username
+      .avatar= (user.name || user.username).charAt(0).toUpperCase()
 
-        if user.role === 'admin'
-          .stats-grid
-            a.stat-card(href="/employees")
-              .stat-icon.blue
-                i.fas.fa-user-check
-              .stat-info
-                span Nhân viên hiện tại
-                h2= dashboardStats ? dashboardStats.employeeCount : 0
-            a.stat-card(href="/departments")
-              .stat-icon.green
-                i.fas.fa-building
-              .stat-info
-                span Phòng ban
-                h2= dashboardStats ? dashboardStats.departmentCount : 0
-            a.stat-card(href="/salary/provisional")
-              .stat-icon.orange
-                i.fas.fa-clock
-              .stat-info
-                span Chờ duyệt lương
-                h2= dashboardStats ? dashboardStats.pendingSalaryCount : 0
-            .stat-card.contract-stat-card
-              .stat-icon.blue
-                i.fas.fa-file-contract
-              .stat-info
-                a.stat-link(href="/contracts")
-                  span Hợp đồng
-                  h2= dashboardStats ? dashboardStats.contractCount : 0
-                a.contract-alert-link(href="/contracts?filter=expiring")
-                  | Sắp hết hạn: 
-                  strong= dashboardStats ? dashboardStats.expiringContracts.length : 0
-            a.stat-card(href="/employees")
-              .stat-icon.orange
-                i.fas.fa-arrow-trend-up
-              .stat-info
-                span Sắp đến hạn xét lương
-                h2= dashboardStats ? dashboardStats.employeesDueForRaise.length : 0
-        else
-          .stats-grid
-            a.stat-card(href="/profile")
-              .stat-icon.blue
-                i.fas.fa-id-card
-              .stat-info
-                span Hồ sơ cá nhân
-                h2 01
-            a.stat-card(href="/attendance")
-              .stat-icon.green
-                i.fas.fa-calendar-check
-              .stat-info
-                span Chấm công
-                h2 Cá nhân
-            a.stat-card(href="/salary")
-              .stat-icon.orange
-                i.fas.fa-wallet
-              .stat-info
-                span Phiếu lương
-                h2 Cá nhân
+  .content-wrapper
 
-    // Script xử lý đóng/mở mượt mà cho Dropdown Menu
-    script.
-      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
-        item.addEventListener('click', function(e) {
-          e.preventDefault();
-          const menuGroup = this.closest('.menu-group');
-          const submenu = menuGroup.querySelector('.submenu');
-          const toggleIcon = this.querySelector('.toggle-icon');
-          
-          // Đóng các menu khác
-          document.querySelectorAll('.submenu').forEach(sub => {
-            if (sub !== submenu) {
-              sub.classList.remove('show');
-              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
-              if (icon) icon.classList.remove('rotate');
-            }
-          });
+    .welcome-banner
+      h1 📱 Chào mừng, #{user.name || user.username}
+      p Quản lý bán hàng và chăm sóc khách hàng cho cửa hàng điện thoại một cách hiệu quả
 
-          // Bật/tắt menu hiện tại
-          submenu.classList.toggle('show');
-          toggleIcon.classList.toggle('rotate');
-        });
-      });
+    // ================= SẢN PHẨM SẮP HẾT HÀNG =================
+    if dashboardStats && dashboardStats.lowStockProducts && dashboardStats.lowStockProducts.length > 0
+      .dashboard-notifications
+        .dashboard-notifications-header
+          h3
+            i.fas.fa-triangle-exclamation
+            |  Sản phẩm sắp hết hàng
+
+          a(href="/products?filter=lowstock") Xem toàn bộ kho →
+
+        each p in dashboardStats.lowStockProducts
+          a.dashboard-notification-item(href="/products?filter=lowstock")
+            span.notification-badge.announce= p.stockQty + ' còn lại'
+
+            .dashboard-notification-text
+              strong= p.name
+              span= `Mã SP: ${p.sku || 'N/A'}`
+
+    // ================= BẢO HÀNH SẮP HẾT HẠN =================
+    if dashboardStats && dashboardStats.expiringWarranties && dashboardStats.expiringWarranties.length > 0
+      .dashboard-notifications
+        .dashboard-notifications-header
+          h3
+            i.fas.fa-shield-halved
+            |  Bảo hành sắp hết hạn
+
+          a(href="/warranties?filter=expiring") Xem danh sách bảo hành →
+
+        each w in dashboardStats.expiringWarranties
+          a.dashboard-notification-item(href="/warranties?filter=expiring")
+            span.notification-badge.announce= w.daysUntilExpiration + ' ngày'
+
+            .dashboard-notification-text
+              strong= `${w.productName || 'Chưa rõ sản phẩm'} (${w.warrantyCode || ''})`
+              span= `Hết hạn: ${w.expiryDate}`
+
+    // ================= DASHBOARD ADMIN =================
+    if user.role === 'admin'
+      .stats-grid
+
+        // Khách hàng
+        a.stat-card(href="/customers")
+          .stat-icon.blue
+            i.fas.fa-address-book
+
+          .stat-info
+            span Khách hàng
+            h2= dashboardStats ? dashboardStats.customerCount : 0
+
+        // Sản phẩm
+        a.stat-card(href="/products")
+          .stat-icon.orange
+            i.fas.fa-mobile-alt
+
+          .stat-info
+            span Sản phẩm trong kho
+            h2= dashboardStats ? dashboardStats.productCount : 0
+
+        // Đơn hàng
+        a.stat-card(href="/orders")
+          .stat-icon.green
+            i.fas.fa-cash-register
+
+          .stat-info
+            span Đơn hàng đang mở
+            h2= dashboardStats ? dashboardStats.openOrderCount : 0
+
+        // Phiếu bảo hành
+        .stat-card.contract-stat-card
+          .stat-icon.blue
+            i.fas.fa-shield-halved
+
+          .stat-info
+            a.stat-link(href="/warranties")
+              span Phiếu bảo hành
+              h2= dashboardStats ? dashboardStats.warrantyCount : 0
+
+            a.contract-alert-link(href="/warranties?filter=expiring")
+              | Sắp hết hạn:
+              strong= dashboardStats ? dashboardStats.expiringWarranties.length : 0
+
+        // Nhân viên
+        .stat-card.contract-stat-card
+          .stat-icon.green
+            i.fas.fa-user-tie
+
+          .stat-info
+            a.stat-link(href="/employees")
+              span Tổng số nhân viên
+              h2= dashboardStats ? dashboardStats.employeeCount : 0
+
+            a.contract-alert-link(href="/employees?status=Đang làm việc")
+              | Đang làm việc:
+              strong= dashboardStats ? dashboardStats.activeEmployeeCount : 0
+
+    // ================= DASHBOARD NHÂN VIÊN =================
+    if user.role !== 'admin'
+      .stats-grid
+
+        // Khách hàng phụ trách
+        a.stat-card(href="/customers")
+          .stat-icon.blue
+            i.fas.fa-address-book
+
+          .stat-info
+            span Khách hàng phụ trách
+            h2= dashboardStats ? dashboardStats.customerCount : 0
+
+        // Đơn hàng đang xử lý
+        a.stat-card(href="/orders")
+          .stat-icon.green
+            i.fas.fa-cash-register
+
+          .stat-info
+            span Đơn hàng đang xử lý
+            h2= dashboardStats ? dashboardStats.openOrderCount : 0
+
+        // Phiếu bảo hành của tôi
+        a.stat-card(href="/warranties")
+          .stat-icon.orange
+            i.fas.fa-shield-halved
+
+          .stat-info
+            span Phiếu bảo hành của tôi
+            h2= dashboardStats ? dashboardStats.warrantyCount : 0
+
+include _script.pug
+

@@ -1,80 +1,82 @@
 doctype html
 html
-  head
-    title Quản lý nhân viên - HRM System
-    link(rel="stylesheet", href="/public/style.css")
-    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
-  body.dashboard-body
-    // Sidebar bên trái
-    include sidebar.pug
+head
+  title PhoneShop CRM - Quản lý nhân viên
+  link(rel="stylesheet", href="/public/style.css")
+  link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
 
-    // Khu vực nội dung bên phải
-    main.main-content
-      header.topbar
-        form.search-bar(method="GET", action="/employees")
-          i.fas.fa-search
-          input(type="text", name="keyword", value=searchKeyword || '', placeholder="Tìm theo tên hoặc mã nhân viên...")
-          button(type="submit", style="border: none; background: var(--primary); color: white; padding: 8px 14px; border-radius: 8px; cursor: pointer;") Tìm
-          if searchKeyword
-            a(href="/employees", style="color: var(--text-secondary); text-decoration: none; font-weight: 600;") Xóa
-        .user-info
-          span.welcome Xin chào, 
-            strong #{user.username}
-          .avatar #{user.username.charAt(0).toUpperCase()}
+body.dashboard-body
+  include sidebar.pug
 
-      .content-wrapper
-        .welcome-banner
-          h1 👨‍💼 Quản lý nhân viên
-          p Danh sách và chi tiết lý lịch hồ sơ toàn bộ nhân sự trong hệ thống
+  main.main-content
+    header.topbar
+      .search-bar
+        i.fas.fa-search
+        input(type="text" placeholder="Tìm kiếm nhanh...")
 
-        .table-container
-          table
-            thead
-              tr
-                th Mã nhân viên
-                th Tên nhân viên
-                th Chức vụ
-                th Phòng ban
-                th Hành động
-            tbody
-              if employees && employees.length > 0
-                each emp in employees
-                  tr
-                    td(style="font-weight: bold;")= emp.employeeCode || emp.code || emp.maNV || 'Chưa có mã'
-                    td(style="font-weight: bold;")= emp.name
-                    td= emp.role
-                    td= emp.department
-                    td
-                      // Nút Xem chi tiết áp dụng cho tất cả các phân quyền tài khoản
-                      a.btn-edit(href=`/employees/detail/${emp._id}`, style="background: var(--primary); margin-right: 5px; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") 
-                        i.fas.fa-eye(style="margin-right: 4px;")
-                        
-                      
-                      // Chỉ hiển thị Sửa/Xóa đối với tài khoản Admin
-                      if user.role === 'admin'
-                        a.btn-edit(href=`/employees/edit/${emp._id}`, style="padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") Sửa
-                        a.btn-delete(href=`/employees/delete/${emp._id}`, onclick="return confirm('Bạn có chắc chắn muốn xóa nhân viên này?')", style="margin-left: 5px; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") Xóa
-              else
+      .user-info
+        span.welcome Xin chào,
+          strong= user.name || user.username
+        .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+    .content-wrapper
+
+      .welcome-banner
+        h1
+          i.fas.fa-user-tie
+          |  Quản lý nhân viên
+        p Kiểm soát số lượng nhân viên và trạng thái làm việc của cửa hàng
+
+      .attendance-toolbar
+        .attendance-filter-card
+          .attendance-filter-header
+            i.fas.fa-user-tie
+            |  Tổng quan nhân sự
+
+          .employee-summary
+            span Tổng số nhân viên: 
+              strong= totalCount
+            span Đang làm việc: 
+              strong= activeCount
+            span Ngưng làm việc: 
+              strong= inactiveCount
+
+
+      .table-container
+        table
+          thead
+            tr
+              th Mã NV
+              th Họ tên
+              th Năm sinh
+              th Giới tính
+              th Số điện thoại
+              th Chức vụ
+              th Ngày vào làm
+              th Trạng thái
+              th Hành động
+          tbody
+            if employees && employees.length
+              each e in employees
                 tr
-                  td(colspan="5", style="text-align: center; padding: 20px;")= searchKeyword ? 'Không tìm thấy nhân viên phù hợp' : 'Chưa có dữ liệu nhân viên'
+                  td
+                    span= e.employeeCode
+                    if e.userId
+                      i.fas.fa-link(style="margin-left:6px; color:#6366f1;" title="Đã có tài khoản đăng nhập liên kết")
+                  td= e.name
+                  td= e.birthYear || 'Chưa cập nhật'
+                  td= e.gender || 'Chưa cập nhật'
+                  td= e.phone || 'Chưa cập nhật'
+                  td= e.position || 'Nhân viên'
+                  td= e.startDate || 'Chưa cập nhật'
+                  td
+                    span.status-badge(class=(e.status === 'Đang làm việc' ? 'status-active' : 'status-inactive'))= e.status
+                  td
+                    a.btn-edit(href=`/employees/detail/${e._id}` title="Xem chi tiết nhân viên") Chi tiết
+                    a.btn-edit(href=`/employees/edit/${e._id}`) Sửa
+                    a.btn-delete(href=`/employees/delete/${e._id}` onclick="return confirm('Xóa hồ sơ nhân viên này?')") Xóa
+            else
+              tr
+                td(colspan="9" style="text-align:center; color:#9ca3af; padding: 24px;") Chưa có nhân viên nào
 
-    script.
-      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
-        item.addEventListener('click', function(e) {
-          e.preventDefault();
-          const menuGroup = this.closest('.menu-group');
-          const submenu = menuGroup.querySelector('.submenu');
-          const toggleIcon = this.querySelector('.toggle-icon');
-          
-          document.querySelectorAll('.submenu').forEach(sub => {
-            if (sub !== submenu) {
-              sub.classList.remove('show');
-              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
-              if(icon) icon.classList.remove('rotate');
-            }
-          });
-
-          submenu.classList.toggle('show');
-          toggleIcon.classList.toggle('rotate');
-        });
-      });
+  include _script.pug

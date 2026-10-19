@@ -1,0 +1,83 @@
+doctype html
+html
+  head
+    title Thêm phiếu bảo hành - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-shield-halved
+            h2 Thêm phiếu bảo hành
+
+          if order
+            div(style="margin-bottom: 16px; padding: 12px 14px; border-radius: 10px; background: #f0f9ff; color: #1d4ed8; font-size: 0.9rem;")
+              i.fas.fa-circle-info(style="margin-right: 6px;")
+              | Đang tạo bảo hành từ đơn hàng #{order.orderCode}.
+
+          form(method="POST" action="/warranties/add")
+            if order
+              input(type="hidden" name="orderId" value=order._id)
+              input(type="hidden" name="customerId" value=order.customerId)
+              .form-group
+                label Khách hàng
+                input(type="text" value=(orderCustomer ? orderCustomer.name : 'Không rõ') disabled)
+              .form-group
+                label Sản phẩm (đã mua trong đơn #{order.orderCode})
+                if availableItems.length
+                  select(name="productId" required)
+                    option(value="") -- Chọn sản phẩm trong đơn --
+                    each i in availableItems
+                      option(value=i.productId)= `${i.productName} x${i.quantity}`
+                else
+                  div(style="padding: 12px 14px; border-radius: 10px; background: #fef3c7; color: #92400e; font-size: 0.9rem;")
+                    i.fas.fa-triangle-exclamation(style="margin-right: 6px;")
+                    | Tất cả sản phẩm trong đơn này đã có phiếu bảo hành.
+                if warrantiedItems.length
+                  small(style="display:block; margin-top:6px; color:#6b7280;")
+                    | Đã có phiếu bảo hành: #{warrantiedItems.map(i => i.productName).join(', ')}
+            else
+              .form-group
+                label Khách hàng
+                select(name="customerId" required)
+                  option(value="") -- Chọn khách hàng --
+                  each c in customers
+                    option(value=c._id)= `${c.name} (${c.phone || 'chưa có SĐT'})`
+              .form-group
+                label Sản phẩm
+                select(name="productId" required)
+                  option(value="") -- Chọn sản phẩm --
+                  each p in products
+                    option(value=p._id)= `${p.name} (${p.sku})`
+            .form-group
+              label Ngày mua
+              input(type="date" name="purchaseDate" value=defaultPurchaseDate required)
+            .form-group
+              label Thời hạn bảo hành (tháng)
+              input(type="number" name="warrantyMonths" min="1" value="12" required)
+            .form-group
+              label Trạng thái xử lý
+              select(name="status")
+                option(value="Còn bảo hành") Còn bảo hành / đang trong hạn (tự tính theo ngày hết hạn)
+                option(value="Đã bảo hành xong") Đã bảo hành xong
+            .form-group
+              label Ghi chú
+              input(name="note" placeholder="Tình trạng máy, lỗi đã xử lý...")
+
+            .form-actions
+              button.btn-save(type="submit" disabled=(order && !availableItems.length)) Lưu phiếu bảo hành
+              a.btn-cancel(href="/warranties") Hủy
+
+    include _script.pug

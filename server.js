@@ -1,2377 +1,2848 @@
-// ================= CÁC THƯ VIỆN CẦN DÙNG =================
 const path = require('node:path')
-const fs = require('node:fs') // Thư viện Node.js quản lý tệp tin (Được thêm để lưu ảnh)
 const fastify = require('fastify')({ logger: true })
 const bcrypt = require('bcrypt')
 const { ObjectId } = require('mongodb')
 
-// NOTE: Cấu hình tọa độ check-in của công ty nằm ở đây.
-// Khi cần đổi địa điểm chấm công, chỉ cần sửa companyLatitude, companyLongitude và allowedRadiusMeters.
-// Có thể đổi trực tiếp giá trị mặc định bên dưới hoặc truyền qua biến môi trường COMPANY_LATITUDE, COMPANY_LONGITUDE, ATTENDANCE_RADIUS_METERS.
-const ATTENDANCE_SETTINGS = {
-  companyName: process.env.COMPANY_NAME || 'SPS System',
-  companyLatitude: Number(process.env.COMPANY_LATITUDE || '21.005765'),
-  companyLongitude: Number(process.env.COMPANY_LONGITUDE || '105.931857'),
-  allowedRadiusMeters: Number(process.env.ATTENDANCE_RADIUS_METERS || '400')
-}
-
-const STANDARD_WORK_DAYS = 26
-
-// Chu kỳ xét tăng lương định kỳ (tính bằng tháng), tính từ lần tăng lương gần nhất
-// hoặc từ ngày vào làm nếu nhân viên chưa từng được tăng lương.
-const SALARY_REVIEW_CYCLE_MONTHS = Number(process.env.SALARY_REVIEW_CYCLE_MONTHS || '12')
-
-// Số ngày trước hạn xét lương để hiển thị cảnh báo "sắp đến hạn" trên Dashboard
-const SALARY_REVIEW_WARNING_DAYS = 30
-
-// Hàm tính lương thực nhận dựa trên lương cứng, số ngày đi làm, thưởng và tạm ứng.
-function calculateSalaryByAttendance(hardSalary, attendanceDays, bonus, advance) {
-  return Math.round((Number(hardSalary || 0) / STANDARD_WORK_DAYS) * Number(attendanceDays || 0) + Number(bonus || 0) - Number(advance || 0))
-}
-
-// Tính ngày xét tăng lương kế tiếp của 1 nhân viên.
-// baseDateValue = lastRaiseDate nếu đã từng tăng lương, hoặc joinDate (ngày vào làm) nếu chưa từng tăng.
-function calculateNextSalaryReviewDate(baseDateValue, cycleMonths = SALARY_REVIEW_CYCLE_MONTHS) {
-  if (!baseDateValue || Number.isNaN(new Date(baseDateValue).getTime())) {
-    return null
-  }
-
-  const nextReviewDate = new Date(baseDateValue)
-  nextReviewDate.setMonth(nextReviewDate.getMonth() + Number(cycleMonths || 0))
-  return Number.isNaN(nextReviewDate.getTime()) ? null : nextReviewDate
-}
-
-
-// ================= CÁC PLUGINS CẦN DÙNG =================
-// Cho phép đọc dữ liệu từ form (method POST thông thường)
+// ================= PLUGINS =================
 fastify.register(require('@fastify/formbody'))
 
-// Đăng ký xử lý tải tệp tin (Được thêm để xử lý multipart/form-data)
-fastify.register(require('@fastify/multipart'), {
-  addToBody: true, // Tự động chuyển các trường text thông thường vào req.body để quản lý thuận tiện
-  limits: {
-    fileSize: 20 * 1024 * 1024 // Cho phép file đính kèm tối đa 20MB (đủ cho file Word/Excel/PowerPoint)
-  }
-})
-
-// Quản lý cookie (lưu token đăng nhập)
 fastify.register(require('@fastify/cookie'))
 
-// JWT: tạo và xác thực token đăng nhập
 fastify.register(require('@fastify/jwt'), {
-  secret: 'secret123' // khóa bí mật để ký token
+  secret: 'secret123'
 })
 
-// Kết nối MongoDB (database: company)
 fastify.register(require('@fastify/mongodb'), {
   url: 'mongodb://127.0.0.1:27017/company'
 })
 
-// Cấu hình template engine Pug để render giao diện
 fastify.register(require('@fastify/view'), {
   engine: { pug: require('pug') },
-  root: path.join(__dirname, 'views') // thư mục chứa file .pug
+  root: path.join(__dirname, 'views')
 })
 
-// Cho phép load file tĩnh (CSS, JS, ảnh)
 fastify.register(require('@fastify/static'), {
   root: path.join(__dirname, 'public'),
-  prefix: '/public/' // truy cập qua /public/...
+  prefix: '/public/'
 })
 
+// ================= HẰNG SỐ NGHIỆP VỤ =================
+const PRODUCT_BRANDS = ['Apple', 'Samsung', 'Xiaomi', 'Oppo', 'Vivo', 'Realme', 'Nokia', 'Khác']
+const PRODUCT_CATEGORIES = ['Điện thoại', 'Máy tính bảng', 'Đồng hồ thông minh', 'Phụ kiện']
+const PRODUCT_TYPES = ['Mới 100% (chính hãng)', 'Like new', 'Cũ đã qua sử dụng', 'Hàng trưng bày']
+const ACTIVITY_TYPES = ['Gọi điện tư vấn', 'Nhắn tin/Zalo', 'Gặp trực tiếp', 'Hỗ trợ bảo hành', 'Khác']
+const LOW_STOCK_THRESHOLD = 5
 
-// ================= MIDDLEWARES (Hàm chạy trước khi vào chương trình chính) =================
+// Trạng thái công việc nhắc lịch chăm sóc khách hàng (reminders)
+const REMINDER_STATUSES = ['Chờ thực hiện', 'Đã hoàn thành']
 
-// Middleware kiểm tra đăng nhập
+// Lịch chăm sóc sau bán hàng TỰ ĐỘNG tạo khi nhân viên xác nhận đơn (tính từ ngày xác nhận)
+const AFTER_SALES_FOLLOWUPS = [
+  { days: 7, label: '7 ngày', prompt: 'hỏi khách dùng máy có ổn không, cần hỗ trợ cài đặt gì không' },
+  { days: 30, label: '1 tháng', prompt: 'hỏi mức độ hài lòng, nhắc phụ kiện / quyền lợi bảo hành' }
+]
+// Tự tạo lịch nhắc khi bảo hành còn <= N ngày sẽ hết hạn
+const WARRANTY_EXPIRY_REMIND_DAYS = 30
+// Chu kỳ quét bảo hành sắp hết hạn (ngoài lần quét khi khởi động server)
+const AUTO_REMINDER_SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000
+
+// --- Nhân viên (hồ sơ nhân sự - khác với tài khoản đăng nhập "users") ---
+// Chỉ có 1 chức vụ duy nhất cho mọi nhân viên (không phân biệt bán hàng, kỹ thuật, thu ngân, ...)
+const EMPLOYEE_POSITION = 'Nhân viên'
+const EMPLOYEE_GENDERS = ['Nam', 'Nữ', 'Khác']
+const EMPLOYEE_STATUSES = ['Đang làm việc', 'Ngưng làm việc']
+
+// --- Vai trò tài khoản (collection users) ---
+const STAFF_ROLES = ['admin', 'user']            // nội bộ cửa hàng
+const ALL_ROLES = ['admin', 'user', 'customer']  // thêm khách hàng
+
+// ================= HELPERS =================
+
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Tạo regex "chứa" (case-insensitive) từ từ khóa tìm kiếm, trả về null nếu rỗng
+function buildContainsRegex(keyword) {
+  const trimmed = String(keyword || '').trim()
+  if (!trimmed) return null
+  return new RegExp(escapeRegex(trimmed), 'i')
+}
+
+// Chuyển chuỗi thành ObjectId hợp lệ, trả về null nếu không hợp lệ
+function normalizeObjectId(value) {
+  if (!value) return null
+  if (value instanceof ObjectId) return value
+  const str = typeof value === 'object' && value.value ? value.value : value
+  return ObjectId.isValid(str) ? new ObjectId(str) : null
+}
+
+// Luôn trả về mảng, kể cả khi form chỉ gửi 1 giá trị (không phải mảng)
+function toArrayField(value) {
+  if (value === undefined || value === null || value === '') return []
+  return Array.isArray(value) ? value : [value]
+}
+
+function formatDate(value) {
+  if (!value) return 'Chưa cập nhật'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return String(value)
+  return d.toLocaleDateString('vi-VN')
+}
+
+// Định dạng yyyy-mm-dd cho thuộc tính value của <input type="date">
+function toDateInputValue(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toISOString().slice(0, 10)
+}
+
+function daysUntil(dateValue) {
+  if (!dateValue) return null
+  const target = new Date(dateValue)
+  if (Number.isNaN(target.getTime())) return null
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const diffMs = target.getTime() - startOfToday.getTime()
+  return Math.round(diffMs / (1000 * 60 * 60 * 24))
+}
+
+// Trạng thái bảo hành THỰC TẾ, luôn tính từ expiryDate thay vì tin vào giá trị "status" nhập
+// tay (tránh trường hợp phiếu đã hết hạn theo ngày nhưng status vẫn ghi "Còn bảo hành" vì
+// nhân viên quên cập nhật). "Đã bảo hành xong" là trạng thái duy nhất nhân viên cần tự set
+// tay (khi đã xử lý xong 1 lượt bảo hành/sửa chữa cho khách).
+function warrantyEffectiveStatus(w) {
+  if (w.status === 'Đã bảo hành xong') return 'Đã bảo hành xong'
+  const days = daysUntil(w.expiryDate)
+  if (days !== null && days < 0) return 'Hết hạn'
+  return 'Còn bảo hành'
+}
+
+// Tính thâm niên (VD: "2 năm 3 tháng") từ ngày vào làm, trả về '' nếu ngày không hợp lệ
+function formatSeniority(dateValue) {
+  if (!dateValue) return ''
+  const start = new Date(dateValue)
+  if (Number.isNaN(start.getTime())) return ''
+  const now = new Date()
+  let months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth())
+  if (now.getDate() < start.getDate()) months -= 1
+  if (months < 0) return ''
+  const years = Math.floor(months / 12)
+  const restMonths = months % 12
+  if (years === 0 && restMonths === 0) return 'dưới 1 tháng'
+  return [years ? `${years} năm` : '', restMonths ? `${restMonths} tháng` : ''].filter(Boolean).join(' ')
+}
+
+// Kiểm tra sinh nhật (ngày sinh dạng MM-DD hoặc YYYY-MM-DD) có rơi vào tháng hiện tại không
+// -> dùng để nhắc nhở chăm sóc/chúc mừng sinh nhật khách hàng
+function isBirthdayThisMonth(birthDate) {
+  if (!birthDate) return false
+  const parts = String(birthDate).split('-')
+  const month = parts.length === 3 ? Number(parts[1]) : Number(parts[0])
+  if (!month) return false
+  return month === (new Date().getMonth() + 1)
+}
+
+// Cộng thêm N tháng vào một ngày (dạng YYYY-MM-DD), trả về chuỗi YYYY-MM-DD
+function addMonths(dateStr, months) {
+  const d = dateStr ? new Date(dateStr) : new Date()
+  if (Number.isNaN(d.getTime())) return ''
+  d.setMonth(d.getMonth() + Number(months || 0))
+  return d.toISOString().slice(0, 10)
+}
+
+// Định dạng yyyy-mm-dd theo GIỜ ĐỊA PHƯƠNG (toISOString dùng UTC nên ở VN trước 7h sáng sẽ lệch 1 ngày)
+function toLocalDateString(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// Ngày (yyyy-mm-dd) sau hôm nay N ngày
+function addDaysFromToday(days) {
+  const d = new Date()
+  d.setDate(d.getDate() + Number(days || 0))
+  return toLocalDateString(d)
+}
+
+// Lấy giá trị thực từ 1 field khi request là multipart (mỗi field đến dạng { value, fieldname, ... })
+function fieldValue(field) {
+  if (field === undefined || field === null) return ''
+  return typeof field === 'object' && 'value' in field ? field.value : field
+}
+
+// Đọc & chuẩn hóa thông tin sản phẩm từ form (dùng chung cho thêm / sửa).
+// Chỉ gồm: mã SP, tên SP, hãng, danh mục, tồn kho + chi tiết (loại hàng, bảo hành, màu).
+function parseProductFields(body) {
+  const text = key => String(fieldValue(body[key])).trim()
+  const warrantyRaw = text('warrantyMonths')
+
+  return {
+    sku: text('sku'),
+    name: text('name'),
+    brand: text('brand') || 'Khác',
+    category: text('category') || 'Điện thoại',
+    stockQty: Number(text('stockQty')) || 0,
+    // --- Chi tiết sản phẩm ---
+    productType: text('productType') || PRODUCT_TYPES[0],
+    warrantyMonths: warrantyRaw === '' ? 12 : (Number(warrantyRaw) || 0),
+    color: text('color')
+  }
+}
+
+// Bộ lọc phân quyền: admin thấy tất cả, sales chỉ thấy dữ liệu được giao (assignedTo)
+function scopeFilter(req, field = 'assignedTo') {
+  if (req.user.role === 'admin') return {}
+  return { [field]: normalizeObjectId(req.user.id) }
+}
+
+// Admin luôn được thao tác. Nhân viên (role='user') chỉ được thao tác trên bản ghi đang
+// gán cho chính mình (assignedTo) - áp dụng cho đơn hàng/phiếu bảo hành, tương tự cách
+// /customers/detail đã kiểm tra, để tránh nhân viên A sửa được dữ liệu của nhân viên B.
+function canActOnRecord(req, record) {
+  if (!record) return false
+  if (req.user.role === 'admin') return true
+  return record.assignedTo && record.assignedTo.toString() === String(req.user.id)
+}
+
+// Riêng cho khách hàng: khác canActOnRecord ở chỗ khách hàng CHƯA được phân công (assignedTo
+// rỗng) vẫn xem/thao tác được (để nhân viên có thể nhận chăm sóc khách mới) - chỉ chặn khi
+// khách đã được gán cho MỘT nhân viên khác.
+function canAccessCustomer(req, customer) {
+  if (req.user.role === 'admin') return true
+  return !customer.assignedTo || customer.assignedTo.toString() === String(req.user.id)
+}
+
+// Trừ / cộng lại tồn kho theo danh sách items của đơn hàng
+async function adjustStock(items, sign) {
+  if (!items || !items.length) return
+  const productsCol = fastify.mongo.db.collection('products')
+  for (const item of items) {
+    if (!item.productId) continue
+    await productsCol.updateOne(
+      { _id: item.productId },
+      { $inc: { stockQty: sign * Number(item.quantity || 0) } }
+    )
+  }
+}
+
+// Giữ chỗ (trừ) tồn kho một cách NGUYÊN TỬ: chỉ trừ khi stockQty >= số lượng cần mua.
+// Nhờ điều kiện nằm ngay trong câu lệnh update nên 2 nhân viên cùng chốt đơn 1 sản phẩm
+// cuối cùng cũng không thể làm kho bị âm. Nếu 1 dòng thất bại -> hoàn lại các dòng đã trừ.
+// items: [{ productId, productName, quantity }] (mỗi sản phẩm chỉ xuất hiện 1 lần)
+async function reserveStock(items) {
+  const productsCol = fastify.mongo.db.collection('products')
+  const reserved = []
+  for (const item of items) {
+    const result = await productsCol.updateOne(
+      { _id: item.productId, stockQty: { $gte: item.quantity } },
+      { $inc: { stockQty: -item.quantity } }
+    )
+    if (result.modifiedCount === 0) {
+      await adjustStock(reserved, 1)
+      return { ok: false, failedItem: item }
+    }
+    reserved.push(item)
+  }
+  return { ok: true }
+}
+
+// Chủ sở hữu một đơn hàng / phiếu bảo hành PHẢI đi theo nhân viên phụ trách khách hàng đó
+// (không phải người vừa bấm nút tạo). Nếu không, khi admin tạo hộ đơn cho khách của nhân
+// viên A, đơn sẽ "biến mất" khỏi danh sách của A vì bị gán nhầm cho admin.
+async function resolveOwner(db, customerId, fallbackUserId) {
+  if (customerId) {
+    const customer = await db.collection('customers').findOne({ _id: normalizeObjectId(customerId) })
+    if (customer && customer.assignedTo) return customer.assignedTo
+  }
+  return normalizeObjectId(fallbackUserId)
+}
+
+// Ghi lịch sử chăm sóc khách hàng (activities). Đây là điểm khác biệt cốt lõi của CRM:
+// mọi mốc quan trọng trong vòng đời khách hàng (mua hàng, xác nhận đơn...) đều
+// phải để lại dấu vết trên hồ sơ khách hàng, thay vì chỉ nằm rời rạc trong từng đơn hàng.
+async function logActivity(db, { customerId, type, note, orderId, userId }) {
+  if (!customerId) return
+  await db.collection('activities').insertOne({
+    customerId: normalizeObjectId(customerId),
+    orderId: orderId ? normalizeObjectId(orderId) : null,
+    type,
+    note: note || '',
+    createdBy: userId ? normalizeObjectId(userId) : null,
+    createdAt: new Date()
+  })
+}
+
+// Tạo lịch nhắc chăm sóc TỰ ĐỘNG, không bao giờ tạo trùng.
+// Mỗi lịch có 1 autoKey duy nhất (VD: "after-sales:<orderId>:7d"). Khóa được ghi vào collection
+// "auto_reminder_keys" (dùng _id làm khóa duy nhất) TRƯỚC khi tạo reminder. Nhờ vậy:
+//   - bấm xác nhận đơn 2 lần / quét bảo hành nhiều lần cũng không sinh lịch trùng;
+//   - nhân viên đã xóa một lịch tự động thì hệ thống KHÔNG tự tạo lại nó.
+// Trả về true nếu vừa tạo mới, false nếu đã từng tạo (hoặc thiếu khách hàng).
+async function createAutoReminder(db, { autoKey, customerId, dueDate, note, assignedTo, source, orderId, warrantyId }) {
+  const cid = normalizeObjectId(customerId)
+  if (!cid || !autoKey || !dueDate) return false
+
+  try {
+    await db.collection('auto_reminder_keys').insertOne({ _id: autoKey, createdAt: new Date() })
+  } catch (err) {
+    if (err && err.code === 11000) return false // đã tạo trước đó
+    throw err
+  }
+
+  try {
+    await db.collection('reminders').insertOne({
+      customerId: cid,
+      dueDate,
+      note: note || '',
+      status: REMINDER_STATUSES[0],
+      assignedTo: normalizeObjectId(assignedTo),
+      createdBy: null, // do hệ thống tạo
+      auto: true,
+      source,
+      autoKey,
+      orderId: orderId ? normalizeObjectId(orderId) : null,
+      warrantyId: warrantyId ? normalizeObjectId(warrantyId) : null,
+      createdAt: new Date()
+    })
+    return true
+  } catch (err) {
+    // Tạo reminder lỗi -> gỡ khóa để lần sau còn tạo lại được
+    await db.collection('auto_reminder_keys').deleteOne({ _id: autoKey }).catch(() => {})
+    throw err
+  }
+}
+
+// Quét các phiếu bảo hành sắp hết hạn (trong WARRANTY_EXPIRY_REMIND_DAYS ngày tới) và tạo lịch nhắc
+// cho nhân viên đang phụ trách khách. Khóa có kèm expiryDate: nếu sau này gia hạn / sửa ngày hết hạn
+// thì phiếu đó được nhắc lại theo hạn mới.
+async function generateWarrantyExpiryReminders() {
+  try {
+    const db = fastify.mongo.db
+    const today = toLocalDateString(new Date())
+    const limit = addDaysFromToday(WARRANTY_EXPIRY_REMIND_DAYS)
+
+    // expiryDate lưu dạng chuỗi yyyy-mm-dd nên so sánh chuỗi cho kết quả đúng thứ tự thời gian
+    const warranties = await db.collection('warranties')
+      .find({ expiryDate: { $gte: today, $lte: limit }, customerId: { $ne: null } })
+      .toArray()
+    if (!warranties.length) return 0
+
+    const customers = await db.collection('customers')
+      .find({ _id: { $in: warranties.map(w => w.customerId) } })
+      .toArray()
+    const customerById = new Map(customers.map(c => [c._id.toString(), c]))
+
+    let created = 0
+    for (const w of warranties) {
+      if (warrantyEffectiveStatus(w) !== 'Còn bảo hành') continue
+      const customer = customerById.get(w.customerId.toString())
+      if (!customer) continue
+
+      const days = daysUntil(w.expiryDate)
+      const when = days === 0 ? 'hôm nay' : `còn ${days} ngày`
+      const ok = await createAutoReminder(db, {
+        autoKey: `warranty-expiry:${w._id}:${w.expiryDate}`,
+        customerId: w.customerId,
+        dueDate: today,
+        note: `Bảo hành ${w.warrantyCode} (${w.productName}) hết hạn ngày ${formatDate(w.expiryDate)} (${when}) - liên hệ khách kiểm tra máy / giới thiệu dịch vụ.`,
+        // Ưu tiên người đang phụ trách khách hiện tại (tránh nhắc nhầm nhân viên cũ)
+        assignedTo: customer.assignedTo || w.assignedTo,
+        source: 'warranty-expiry',
+        orderId: w.orderId,
+        warrantyId: w._id
+      })
+      if (ok) created++
+    }
+
+    if (created) console.log(`Đã tự tạo ${created} lịch nhắc bảo hành sắp hết hạn`)
+    return created
+  } catch (err) {
+    fastify.log.error(err)
+    return 0
+  }
+}
+
+// ---------- LỊCH NHẮC SINH NHẬT KHÁCH HÀNG (TỰ ĐỘNG) ----------
+// Khách hàng có sinh nhật trong THÁNG HIỆN TẠI sẽ được tự tạo 1 lịch nhắc chăm sóc (mỗi khách / mỗi tháng / mỗi năm
+// chỉ 1 lịch, dùng cùng cơ chế chống trùng createAutoReminder). Ngày hẹn = đúng ngày sinh nhật trong tháng này;
+// nếu ngày sinh nhật đã qua thì hẹn hôm nay (chúc mừng muộn). Người nhận nhắc = nhân viên phụ trách khách.
+function buildBirthdayReminderData(customer) {
+  if (!customer || !customer.birthDate || !isBirthdayThisMonth(customer.birthDate)) return null
+  const parts = String(customer.birthDate).split('-').map(Number)
+  const hasYear = parts.length === 3
+  const month = hasYear ? parts[1] : parts[0]
+  const rawDay = hasYear ? parts[2] : parts[1]
+  if (!month || !rawDay) return null
+
+  const now = new Date()
+  const year = now.getFullYear()
+  const day = Math.min(rawDay, new Date(year, month, 0).getDate()) // 29/02 -> 28/02 ở năm không nhuận
+  const mm = String(month).padStart(2, '0')
+  const dd = String(day).padStart(2, '0')
+  const birthdayStr = `${year}-${mm}-${dd}`
+  const today = toLocalDateString(now)
+  const passed = birthdayStr < today
+  const age = hasYear && parts[0] ? year - parts[0] : null
+
+  const note = `🎂 Sinh nhật khách hàng ${customer.name || ''} ngày ${dd}/${mm}` +
+    `${age ? ` (tròn ${age} tuổi)` : ''}${passed ? ' - đã qua ngày sinh nhật, hãy chúc mừng muộn' : ''}` +
+    ' - gọi/nhắn Zalo chúc mừng, gửi ưu đãi sinh nhật.'
+
+  return {
+    autoKey: `birthday:${customer._id}:${year}-${mm}`,
+    dueDate: passed ? today : birthdayStr,
+    note
+  }
+}
+
+async function createBirthdayReminder(db, customer) {
+  const data = buildBirthdayReminderData(customer)
+  if (!data) return false
+  return createAutoReminder(db, {
+    autoKey: data.autoKey,
+    customerId: customer._id,
+    dueDate: data.dueDate,
+    note: data.note,
+    assignedTo: customer.assignedTo,
+    source: 'birthday'
+  })
+}
+
+// Quét toàn bộ khách hàng có sinh nhật tháng này và tạo lịch nhắc còn thiếu
+async function generateBirthdayReminders() {
+  try {
+    const db = fastify.mongo.db
+    const customers = await db.collection('customers')
+      .find({ birthDate: { $exists: true, $nin: ['', null] } })
+      .toArray()
+
+    let created = 0
+    for (const customer of customers) {
+      if (!isBirthdayThisMonth(customer.birthDate)) continue
+      if (await createBirthdayReminder(db, customer)) created++
+    }
+    if (created) console.log(`Đã tự tạo ${created} lịch nhắc sinh nhật khách hàng`)
+    return created
+  } catch (err) {
+    fastify.log.error(err)
+    return 0
+  }
+}
+
+// Gọi sau khi thêm/sửa khách hàng (đổi ngày sinh, đổi người phụ trách) để lịch nhắc cập nhật ngay,
+// không phải chờ lần quét định kỳ.
+async function syncCustomerBirthdayReminder(customerId) {
+  try {
+    const db = fastify.mongo.db
+    const cid = normalizeObjectId(customerId)
+    const customer = cid ? await db.collection('customers').findOne({ _id: cid }) : null
+    if (!customer) return
+
+    const data = buildBirthdayReminderData(customer)
+    if (data) {
+      const created = await createBirthdayReminder(db, customer)
+      if (!created) {
+        // Lịch đã có -> chỉ cập nhật nếu còn "Chờ thực hiện" (đổi ngày sinh / đổi nhân viên phụ trách)
+        await db.collection('reminders').updateMany(
+          { autoKey: data.autoKey, status: REMINDER_STATUSES[0] },
+          { $set: { dueDate: data.dueDate, note: data.note, assignedTo: customer.assignedTo || null } }
+        )
+      }
+    } else {
+      // Ngày sinh không còn rơi vào tháng này (hoặc đã xóa) -> gỡ lịch nhắc sinh nhật đang chờ
+      const now = new Date()
+      const prefix = `birthday:${customer._id}:${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+      const del = await db.collection('reminders').deleteMany({ autoKey: prefix, status: REMINDER_STATUSES[0] })
+      if (del.deletedCount) await db.collection('auto_reminder_keys').deleteOne({ _id: prefix })
+    }
+  } catch (err) {
+    fastify.log.error(err)
+  }
+}
+
+// Tự động khởi tạo hồ sơ nhân viên khi cấp tài khoản đăng nhập cho Nhân viên (role = 'user').
+// Thông tin ban đầu có thể chưa đầy đủ (chỉ có tên, SĐT) - admin sẽ vào
+// mục "Nhân viên" để bổ sung/sửa thêm sau (năm sinh, giới tính, chức vụ chi tiết, ...).
+// Liên kết 2 chiều: users.employeeId <-> employees.userId, để dễ tra cứu và tránh tạo trùng.
+async function createEmployeeForUserAccount(accountId, { name, phone }) {
+  const employeeResult = await fastify.mongo.db.collection('employees').insertOne({
+    employeeCode: `NV-${Date.now().toString().slice(-6)}`,
+    name: name || 'Chưa cập nhật',
+    birthYear: null,
+    gender: 'Nam',
+    phone: phone || '',
+    email: '',
+    position: EMPLOYEE_POSITION,
+    startDate: new Date().toISOString().slice(0, 10),
+    // Trạng thái làm việc tự động theo đăng nhập/đăng xuất: mặc định "Ngưng làm việc",
+    // chuyển thành "Đang làm việc" khi nhân viên đăng nhập.
+    status: 'Ngưng làm việc',
+    address: '',
+    note: 'Hồ sơ được tạo tự động khi cấp tài khoản đăng nhập - vui lòng bổ sung thêm thông tin.',
+    userId: accountId,
+    createdAt: new Date()
+  })
+
+  await fastify.mongo.db.collection('users').updateOne(
+    { _id: accountId },
+    { $set: { employeeId: employeeResult.insertedId } }
+  )
+
+  return employeeResult.insertedId
+}
+
+// ================= TRẠNG THÁI LÀM VIỆC (TỰ ĐỘNG THEO ĐĂNG NHẬP / ĐĂNG XUẤT) =================
+// Nhân viên (role = 'user') đăng nhập -> "Đang làm việc"; đăng xuất -> "Ngưng làm việc".
+// Không còn đếm giờ: hệ thống chỉ lưu trạng thái hiện tại trong employees.status.
+
+// Đặt trạng thái làm việc cho hồ sơ nhân viên liên kết với tài khoản đăng nhập.
+async function setWorkStatusForAccount(accountId, status) {
+  const id = normalizeObjectId(accountId)
+  if (!id) return
+
+  const employeesCol = fastify.mongo.db.collection('employees')
+  const result = await employeesCol.updateOne({ userId: id }, { $set: { status } })
+
+  // Dự phòng: một số hồ sơ cũ có thể thiếu/lệch trường userId -> tra ngược qua employeeId trên tài khoản
+  if (result.matchedCount === 0) {
+    const account = await fastify.mongo.db.collection('users').findOne({ _id: id }, { projection: { employeeId: 1 } })
+    const employeeId = account ? normalizeObjectId(account.employeeId) : null
+    if (employeeId) {
+      await employeesCol.updateOne({ _id: employeeId }, { $set: { status } })
+    }
+  }
+}
+
+// Đồng bộ hồ sơ nhân viên cũ (chức vụ như "Nhân viên bán hàng", "Thu ngân", ...) về chức vụ duy nhất.
+// Chạy 1 lần mỗi khi khởi động server; nếu không còn hồ sơ nào lệch thì không làm gì.
+async function migrateEmployeePositions() {
+  try {
+    const result = await fastify.mongo.db.collection('employees').updateMany(
+      { position: { $ne: EMPLOYEE_POSITION } },
+      { $set: { position: EMPLOYEE_POSITION } }
+    )
+    if (result.modifiedCount) {
+      console.log(`Đã chuẩn hóa chức vụ "${EMPLOYEE_POSITION}" cho ${result.modifiedCount} hồ sơ nhân viên`)
+    }
+  } catch (err) {
+    fastify.log.error(err)
+  }
+}
+
+// ================= HELPERS CHO KHÁCH HÀNG (CỔNG KHÁCH HÀNG) =================
+
+// Hồ sơ khách hàng gắn với tài khoản customer đang đăng nhập (null nếu chưa liên kết)
+async function getMyCustomer(req) {
+  const userId = normalizeObjectId(req.user.id)
+  if (!userId) return null
+  return fastify.mongo.db.collection('customers').findOne({ userId })
+}
+
+// Khách hàng chỉ nhận được các trường cần thiết - KHÔNG lộ ghi chú nội bộ, nhân viên phụ trách...
+function orderForCustomerView(o) {
+  return {
+    orderCode: o.orderCode,
+    status: o.status,
+    itemSummary: (o.items || []).map(i => `${i.productName} x${i.quantity}`).join(', '),
+    createdAtText: formatDate(o.createdAt)
+  }
+}
+
+function warrantyForCustomerView(w) {
+  const effectiveStatus = warrantyEffectiveStatus(w)
+  return {
+    warrantyCode: w.warrantyCode,
+    productName: w.productName,
+    purchaseDate: w.purchaseDate,
+    expiryDate: w.expiryDate,
+    warrantyMonths: w.warrantyMonths,
+    effectiveStatus,
+    daysLeft: effectiveStatus === 'Còn bảo hành' ? daysUntil(w.expiryDate) : null
+  }
+}
+
+// Dữ liệu trang chủ của khách hàng
+async function buildCustomerPortalData(req) {
+  const db = fastify.mongo.db
+  const customer = await getMyCustomer(req)
+  if (!customer) return { user: req.user, customer: null, stats: null, recentOrders: [] }
+
+  const [orders, warranties] = await Promise.all([
+    db.collection('orders').find({ customerId: customer._id }).sort({ createdAt: -1 }).toArray(),
+    db.collection('warranties').find({ customerId: customer._id }).toArray()
+  ])
+
+  const warrantyViews = warranties.map(warrantyForCustomerView)
+  const activeWarranties = warrantyViews.filter(w => w.effectiveStatus === 'Còn bảo hành')
+  const expiringWarranties = activeWarranties
+    .filter(w => w.daysLeft !== null && w.daysLeft >= 0 && w.daysLeft <= 30)
+    .sort((a, b) => a.daysLeft - b.daysLeft)
+
+  return {
+    user: req.user,
+    customer,
+    isBirthdayMonth: isBirthdayThisMonth(customer.birthDate),
+    stats: {
+      orderCount: orders.length,
+      openOrderCount: orders.filter(o => o.status === 'open').length,
+      activeWarrantyCount: activeWarranties.length,
+      expiringWarranties
+    },
+    recentOrders: orders.slice(0, 5).map(orderForCustomerView)
+  }
+}
+
+// Nhân viên chăm sóc (đang phụ trách khách hàng) - hiển thị trong sidebar của khách hàng.
+// Chỉ trả về Tên, Mã NV, SĐT, Email (chỉ để khách xem). Không lộ năm sinh, địa chỉ, ghi chú nội bộ...
+async function getSupportStaff(userId) {
+  try {
+    const db = fastify.mongo.db
+    const id = normalizeObjectId(userId)
+    if (!id) return null
+
+    const customer = await db.collection('customers').findOne({ userId: id }, { projection: { assignedTo: 1 } })
+    const staffId = customer ? normalizeObjectId(customer.assignedTo) : null
+    if (!staffId) return null
+
+    const account = await db.collection('users').findOne({ _id: staffId, role: { $in: STAFF_ROLES } })
+    if (!account) return null
+    const employee = await db.collection('employees').findOne({ userId: account._id })
+
+    return {
+      name: (employee && employee.name) || account.name || account.username,
+      // Admin phụ trách thì không có hồ sơ nhân viên -> không có mã NV
+      employeeCode: (employee && employee.employeeCode) || '',
+      phone: (employee && employee.phone) || account.phone || '',
+      email: (employee && employee.email) || ''
+    }
+  } catch (err) {
+    fastify.log.error(err)
+    return null // lỗi truy vấn không được làm hỏng cả trang
+  }
+}
+
+// sidebar.pug được include ở mọi trang nên cần biến "supportStaff" ở mọi view của khách hàng.
+// Thay vì sửa từng route, bọc reply.view: khi view có user.role = 'customer' thì tự nạp
+// supportStaff vào dữ liệu render (view nào tự truyền supportStaff thì giữ nguyên).
+fastify.addHook('onRequest', async (req, reply) => {
+  const originalView = reply.view
+  if (typeof originalView !== 'function') return
+
+  reply.view = async function (template, data, opts) {
+    let ctx = data || {}
+    if (ctx.user && ctx.user.role === 'customer') {
+      const extra = {}
+      if (ctx.supportStaff === undefined) extra.supportStaff = await getSupportStaff(ctx.user.id)
+      // Số thông báo chưa đọc -> hiện huy hiệu trên menu (view nào tự truyền thì giữ nguyên)
+      if (ctx.unreadAnnouncementCount === undefined) extra.unreadAnnouncementCount = await getUnreadAnnouncementCount(ctx.user.id)
+      ctx = { ...ctx, ...extra }
+    }
+    return originalView.call(this, template, ctx, opts)
+  }
+})
+
+// ================= MIDDLEWARES =================
 async function auth(req, reply) {
   try {
-    // Lấy token từ cookie
     const token = req.cookies.token
-
-    // Xác thực token → nếu hợp lệ sẽ decode ra thông tin user
     req.user = fastify.jwt.verify(token)
-
   } catch (err) {
-    // Nếu lỗi → chưa đăng nhập → chuyển về login
     return reply.redirect('/login')
   }
 }
 
-// Middleware kiểm tra quyền admin
 function isAdmin(req, reply, done) {
-  // Nếu không phải admin → chặn
   if (req.user.role !== 'admin') {
     return reply.status(403).send('❌ Bạn không có quyền thực hiện hành động này')
   }
-  done() // hợp lệ → cho đi tiếp
+  done()
 }
 
-
-function isAttendanceLocationConfigured() {
-  return Number.isFinite(ATTENDANCE_SETTINGS.companyLatitude)
-    && Number.isFinite(ATTENDANCE_SETTINGS.companyLongitude)
-    && ATTENDANCE_SETTINGS.companyLatitude !== 0
-    && ATTENDANCE_SETTINGS.companyLongitude !== 0
-}
-
-function toRadians(value) {
-  return (value * Math.PI) / 180
-}
-
-//Hàm tính khoảng cách giữa 2 điểm GPS (từ vị trí check-in của nhân viên đến tọa độ công ty) theo công thức Haversine.
-function calculateDistanceMeters(fromLatitude, fromLongitude, toLatitude, toLongitude) {
-  const earthRadiusMeters = 6371000
-  const latitudeDelta = toRadians(toLatitude - fromLatitude)
-  const longitudeDelta = toRadians(toLongitude - fromLongitude)
-  // Công thức Haversine
-  const a = Math.sin(latitudeDelta / 2) * Math.sin(latitudeDelta / 2)
-    + Math.cos(toRadians(fromLatitude))
-    * Math.cos(toRadians(toLatitude))
-    * Math.sin(longitudeDelta / 2)
-    * Math.sin(longitudeDelta / 2)
-  // Tính khoảng cách cuối cùng
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return Math.round(earthRadiusMeters * c)
-}
-
-function normalizeObjectId(value) {
-  if (!value) {
-    return null
+// Chặn tài khoản KHÁCH HÀNG khỏi mọi chức năng nội bộ (quản lý khách hàng, đơn hàng, bảo hành...).
+// Dùng: { preHandler: staff }  (= đã đăng nhập + không phải khách hàng)
+function staffOnly(req, reply, done) {
+  if (req.user.role === 'customer') {
+    return reply.status(403).send('❌ Tài khoản khách hàng không có quyền truy cập chức năng này')
   }
-
-  if (value instanceof ObjectId) {
-    return value
-  }
-
-  if (ObjectId.isValid(value)) {
-    return new ObjectId(value)
-  }
-
-  return null
+  done()
 }
 
-function escapeRegex(value) {
-  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// Chỉ tài khoản KHÁCH HÀNG mới vào được cổng khách hàng (/my/...)
+function customerOnly(req, reply, done) {
+  if (req.user.role !== 'customer') {
+    return reply.status(403).send('❌ Chức năng này dành cho tài khoản khách hàng')
+  }
+  done()
 }
 
-function buildContainsRegex(value) {
-  const normalizedValue = String(value || '').trim()
+const staff = [auth, staffOnly]
 
-  if (!normalizedValue) {
-    return null
-  }
-
-  return new RegExp(escapeRegex(normalizedValue), 'i')
-}
-
-function normalizeText(value) {
-  return String(value || '').trim().toLowerCase()
-}
-
-function getWorkDate(value = new Date()) {
-  return new Date(value).toISOString().slice(0, 10)
-}
-
-function getDateRangeForWorkDate(workDate) {
-  const startDate = new Date(`${workDate}T00:00:00.000Z`)
-  const endDate = new Date(`${workDate}T23:59:59.999Z`)
-  return { startDate, endDate }
-}
-
-function parseContractEndDate(signDate, duration, contractType) {
-  const normalizedType = normalizeText(contractType)
-  const normalizedDuration = normalizeText(duration)
-
-  if (!signDate || Number.isNaN(new Date(signDate).getTime())) {
-    return null
-  }
-
-  if (normalizedType.includes('không xác định') || normalizedDuration.includes('không xác định')) {
-    return null
-  }
-
-  const endDate = new Date(`${signDate}T00:00:00.000Z`)
-  const durationMatches = [...String(duration || '').matchAll(/(\d+)\s*(năm|nam|tháng|thang|th|thg|ngày|ngay|year|years|month|months|day|days)/gi)]
-
-  if (durationMatches.length === 0) {
-    return null
-  }
-
-  for (const [, amountText, unitText] of durationMatches) {
-    const amount = Number(amountText)
-    const unit = normalizeText(unitText)
-
-    if (!Number.isFinite(amount) || amount <= 0) {
-      continue
-    }
-
-    if (unit.includes('năm') || unit.includes('nam') || unit.includes('year')) {
-      endDate.setFullYear(endDate.getFullYear() + amount)
-      continue
-    }
-
-    if (unit.includes('tháng') || unit.includes('thang') || unit === 'th' || unit === 'thg' || unit.includes('month')) {
-      endDate.setMonth(endDate.getMonth() + amount)
-      continue
-    }
-
-    if (unit.includes('ngày') || unit.includes('ngay') || unit.includes('day')) {
-      endDate.setDate(endDate.getDate() + amount)
-    }
-  }
-
-  return Number.isNaN(endDate.getTime()) ? null : endDate
-}
-
-function calculateDaysUntil(targetDate, baseDate = new Date()) {
-  const startOfToday = new Date(baseDate)
-  startOfToday.setHours(0, 0, 0, 0)
-
-  const startOfTarget = new Date(targetDate)
-  startOfTarget.setHours(0, 0, 0, 0)
-
-  return Math.ceil((startOfTarget.getTime() - startOfToday.getTime()) / 86400000)
-}
-
-function buildAttendanceRedirect(reply, type, message) {
-  return reply.redirect(`/attendance?${type}=${encodeURIComponent(message)}`)
-}
-
-// Hàm lưu ảnh chấm công từ base64 thành file thật trong /public/uploads.
-// Nếu dữ liệu ảnh không hợp lệ thì trả về chuỗi rỗng để route phía trên tự báo lỗi.
-function saveBase64Image(dataUrl, targetFolder) {
-  if (!dataUrl || typeof dataUrl !== 'string') {
-    return ''
-  }
-
-  const matchedImage = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
-  if (!matchedImage) {
-    return ''
-  }
-
-  const [, mimeType, rawBase64] = matchedImage
-  const extensionMap = {
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'image/png': 'png',
-    'image/webp': 'webp'
-  }
-  const extension = extensionMap[mimeType] || 'png'
-  const uploadDir = path.join(__dirname, 'public', 'uploads', targetFolder)
-
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true })
-  }
-
-  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`
-  const filePath = path.join(uploadDir, filename)
-  fs.writeFileSync(filePath, Buffer.from(rawBase64, 'base64'))
-
-  return `/public/uploads/${targetFolder}/${filename}`
-}
-
-async function findEmployeeByUserId(userId, username) {
-  const normalizedUserId = normalizeObjectId(userId)
-  if (!normalizedUserId) {
-    return null
-  }
-
-  // Bước 1: thử tìm hồ sơ nhân viên đã liên kết chuẩn bằng userId.
-  const employeesCollection = fastify.mongo.db.collection('employees')
-  const linkedEmployee = await employeesCollection.findOne({ userId: normalizedUserId })
-
-  if (linkedEmployee) {
-    return linkedEmployee
-  }
-
-  // Bước 2: fallback cho dữ liệu cũ chưa nối userId.
-  // Quy ước hiện tại: username của tài khoản nhân viên có thể trùng với employeeCode/code/maNV.
-  const normalizedUsername = String(username || '').trim()
-  if (!normalizedUsername) {
-    return null
-  }
-
-  return employeesCollection.findOne({
-    $or: [
-      { employeeCode: normalizedUsername },
-      { code: normalizedUsername },
-      { maNV: normalizedUsername }
-    ]
-  })
-}
-
-async function enrichAttendanceRecords(records) {
-  // Hàm này dùng để bổ sung tên nhân viên, workDate và text hiển thị cho bảng chấm công.
-  // Mục tiêu là view không phải tự suy luận lại dữ liệu thô từ DB.
-  const employeeIds = records
-    .map(record => normalizeObjectId(record.employeeId))
-    .filter(Boolean)
-
-  const uniqueEmployeeIds = [...new Map(employeeIds.map(id => [id.toString(), id])).values()]
-  const employees = uniqueEmployeeIds.length > 0
-    ? await fastify.mongo.db.collection('employees').find({ _id: { $in: uniqueEmployeeIds } }).toArray()
-    : []
-
-  const employeeMap = new Map(employees.map(employee => [employee._id.toString(), employee]))
-
-  return records.map(record => {
-    const employeeId = normalizeObjectId(record.employeeId)
-    const employee = employeeId ? employeeMap.get(employeeId.toString()) : null
-    const workDate = record.workDate || (record.date instanceof Date
-      ? getWorkDate(record.date)
-      : String(record.date || ''))
-
-    return {
-      ...record,
-      employeeName: record.employeeName || employee?.name || 'Chưa rõ nhân viên',
-      workDate,
-      checkInDisplay: record.checkInAt ? new Date(record.checkInAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa check-in',
-      checkOutDisplay: record.checkOutAt ? new Date(record.checkOutAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Chưa check-out',
-      distanceDisplay: record.location?.distanceMeters != null ? `${record.location.distanceMeters} m` : 'N/A'
-    }
-  })
-}
-
-
-// ================= ROUTES HỆ THỐNG =================
-// Các route bên dưới đang đi theo mô hình "một file quản lý toàn bộ hệ thống".
-// Khi sửa một khối lớn, nên kiểm tra luôn các khối có dùng chung helper như salary, attendance, employees.
-
-// Trang gốc → chuyển về login
+// ================= TRANG GỐC =================
 fastify.get('/', async (req, reply) => {
   reply.redirect('/login')
 })
 
-
-// ================= ĐĂNG KÝ (Chuyển thành Admin tạo tài khoản) =================
-// Luồng hiện tại:Chỉ admin được tạo tài khoản.Sau khi tạo user, hệ thống vẫn tạo thêm 1 employee placeholder.
-
-// 1. Hiển thị form đăng ký - Chỉ Admin mới vào được
-fastify.get('/register', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  return reply.view('register.pug', { user: req.user })
-})
-
-// 2. Xử lý đăng ký - Chỉ Admin mới có quyền thực thi
-fastify.post('/register', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const { username, password, employeeCode, name, department, role } = req.body;
-
-  const existingUser = await fastify.mongo.db.collection('users').findOne({ username });
-  if (existingUser) {
-    return reply.view('register.pug', {
-      error: 'Tên đăng nhập đã tồn tại!',
-      user: req.user
-    });
-  }
-
-  const hash = await bcrypt.hash(password, 10);
-
-  // Kiểm tra nếu chức vụ là Trưởng phòng → phòng ban đó chưa được có trưởng phòng khác
-  const newRole = role || 'Nhân viên'
-  const newDepartment = department || 'Chưa cập nhật'
-  const isManagerRole = newRole.toLowerCase().includes('trưởng phòng')
-    || newRole.toLowerCase().includes('truong phong')
-    || newRole.toLowerCase().includes('trưởng')
-
-  if (isManagerRole && newDepartment && newDepartment !== 'Chưa cập nhật') {
-    const existingManager = await fastify.mongo.db.collection('employees').findOne({
-      department: newDepartment,
-      $or: [
-        { role: { $regex: 'trưởng phòng', $options: 'i' } },
-        { role: { $regex: 'truong phong', $options: 'i' } }
-      ]
-    })
-
-    if (existingManager) {
-      return reply.view('register.pug', {
-        error: `❌ Phòng ban "${newDepartment}" đã có trưởng phòng là "${existingManager.name}". Mỗi phòng ban chỉ được có 1 trưởng phòng!`,
-        user: req.user
-      })
-    }
-  }
-
-  // 1. Tạo tài khoản
-  const userResult = await fastify.mongo.db.collection('users').insertOne({
-    username,
-    password: hash,
-    role: 'user' // Mặc định là user
-  });
-
-  // 2. Tạo hồ sơ nhân viên tương ứng
-  await fastify.mongo.db.collection('employees').insertOne({
-    userId: userResult.insertedId, // Liên kết ID tài khoản
-    employeeCode: employeeCode,    // Mã nhân viên từ form
-    name: name || username,        // Tên nhân viên
-    department: newDepartment,
-    role: newRole,
-    status: 'Đang làm việc'
-  });
-
-  // 3. Nếu là trưởng phòng → cập nhật manager trong departments
-  if (isManagerRole && newDepartment && newDepartment !== 'Chưa cập nhật') {
-    await fastify.mongo.db.collection('departments').updateOne(
-      { name: newDepartment },
-      { $set: { manager: name || username } }
-    )
-  }
-
-  reply.redirect('/accounts');
-});
-
-// ================= ĐĂNG NHẬP =================
-
+// ================= ĐĂNG NHẬP / ĐĂNG XUẤT =================
 fastify.get('/login', async (req, reply) => {
   return reply.view('login.pug')
 })
 
 fastify.post('/login', async (req, reply) => {
-  const { username, password } = req.body;
-  const user = await fastify.mongo.db.collection('users').findOne({ username });
+  const { username, password } = req.body
+  const user = await fastify.mongo.db.collection('users').findOne({ username })
 
   if (!user) {
-    return reply.view('login.pug', { error: 'Tài khoản không tồn tại' });
+    return reply.view('login.pug', { error: 'Tài khoản không tồn tại' })
   }
 
-  const storedPassword = user.password || '';
-  const isHashedPassword = typeof storedPassword === 'string' && storedPassword.startsWith('$2');
+  const storedPassword = user.password || ''
+  const isHashedPassword = typeof storedPassword === 'string' && storedPassword.startsWith('$2')
   const match = isHashedPassword
     ? await bcrypt.compare(password, storedPassword)
-    : password === storedPassword;
+    : password === storedPassword
 
   if (!match) {
-    return reply.view('login.pug', { error: 'Mật khẩu không chính xác' });
+    return reply.view('login.pug', { error: 'Mật khẩu không chính xác' })
   }
 
   if (!isHashedPassword) {
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 10)
     await fastify.mongo.db.collection('users').updateOne(
       { _id: user._id },
       { $set: { password: hashedPassword } }
-    );
+    )
   }
 
   const token = fastify.jwt.sign({
     id: user._id,
     username: user.username,
-    role: user.role
-  });
+    role: user.role,
+    name: user.name || user.username
+  })
+
+  // Nhân viên đăng nhập -> tự động chuyển trạng thái thành "Đang làm việc"
+  if (user.role === 'user') {
+    await setWorkStatusForAccount(user._id, 'Đang làm việc')
+  }
 
   reply.setCookie('token', token, {
     path: '/',
     httpOnly: true,
     maxAge: 3600 * 24
-  }).redirect('/dashboard');
-});
+  }).redirect('/dashboard')
+})
 
-// ================= ĐĂNG XUẤT =================
 fastify.get('/logout', async (req, reply) => {
+  // Nhân viên đăng xuất -> tự động chuyển trạng thái thành "Ngưng làm việc"
+  try {
+    if (req.cookies && req.cookies.token) {
+      const decoded = fastify.jwt.verify(req.cookies.token)
+      if (decoded && decoded.role === 'user') {
+        await setWorkStatusForAccount(decoded.id, 'Ngưng làm việc')
+      }
+    }
+  } catch (err) {
+    // token không hợp lệ/hết hạn -> bỏ qua, vẫn tiến hành đăng xuất bình thường
+  }
   reply.clearCookie('token').redirect('/login')
 })
 
+// ================= CẤP TÀI KHOẢN =================
+// ADMIN và NHÂN VIÊN đều được cấp tài khoản, nhưng phạm vi khác nhau:
+//   - Admin: cấp được cả 2 loại
+//       + Nhân viên (role = 'user')      -> tự tạo hồ sơ nhân sự trong "employees"
+//       + Khách hàng (role = 'customer') -> liên kết với 1 hồ sơ trong "customers"
+//   - Nhân viên (role = 'user'): CHỈ cấp được tài khoản KHÁCH HÀNG, và chỉ cho khách
+//       do chính mình phụ trách (assignedTo = mình). Hồ sơ khách mới tạo qua form này
+//       tự động gán cho nhân viên đó. Không thể cấp tài khoản Nhân viên/Admin.
+//   Với khách hàng: chọn hồ sơ có sẵn (chưa có tài khoản) hoặc để trống để tạo hồ sơ mới.
 
-// ================= DASHBOARD =================
-fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
-  // Biến dashboardStats sẽ chứa các số liệu tổng hợp nếu user là admin, hoặc null nếu user là user thường.
-  let dashboardStats = null
+async function loadRegisterData(req) {
+  const db = fastify.mongo.db
+  // userId: null khớp cả hồ sơ chưa có trường userId lẫn userId rỗng => khách chưa có tài khoản
+  // Nhân viên chỉ thấy khách hàng do mình phụ trách; admin thấy tất cả.
+  const linkableFilter = { userId: null, ...scopeFilter(req, 'assignedTo') }
+  const [staffList, linkableCustomers] = await Promise.all([
+    db.collection('users').find({ role: { $in: STAFF_ROLES } }).sort({ name: 1 }).toArray(),
+    db.collection('customers').find(linkableFilter).sort({ name: 1 }).toArray()
+  ])
+  return { staffList, linkableCustomers }
+}
 
-  //1. Lấy vài thông báo mới nhất để hiển thị nhanh trên dashboard cho cả admin và user
-  const latestNotifications = await fastify.mongo.db.collection('notifications')
-    .find()
-    .sort({ pinned: -1, createdAt: -1 })
-    .limit(5)
-    .toArray()
-  //2. phân quyền Nếu là admin → lấy thêm số liệu tổng hợp
-  if (req.user.role === 'admin') {
-    const [employeeCount, departmentCount, pendingSalaryCount, contracts, employees, employeesForRaiseCheck] = await Promise.all([
-      fastify.mongo.db.collection('employees').countDocuments({ employeeCode: { $exists: true, $ne: '' } }),
-      fastify.mongo.db.collection('departments').countDocuments({}),
-      fastify.mongo.db.collection('provisional_salaries').countDocuments({ status: 'pending' }),
-      fastify.mongo.db.collection('contracts').find().toArray(),
-      fastify.mongo.db.collection('employees').find({}, { projection: { name: 1 } }).toArray(),
-      // danh sách nhân viên xét tăng lương chỉ lấy các trường cần thiết như :name,employeeCode,department,hạn thăng lương,ngày tăng lương gần nhất
-      fastify.mongo.db.collection('employees').find(
-        { employeeCode: { $exists: true, $ne: '' }, status: { $ne: 'Đã nghỉ việc' } },
-        { projection: { name: 1, employeeCode: 1, department: 1, joinDate: 1, lastRaiseDate: 1 } }
-      ).toArray()
-    ])
+fastify.get('/register', { preHandler: staff }, async (req, reply) => {
+  // Admin + Nhân viên được vào; tài khoản khách hàng bị chặn bởi middleware "staff"
 
-    const employeeNameById = new Map(employees.map(employee => [employee._id.toString(), employee.name || 'Chưa rõ nhân viên']))
-    //3. kiểm tra hợp đồng sắp hết hạn
-    const expiringContracts = contracts
-      .map(contract => {
-        //tính ngày hết hạn
-        const endDate = parseContractEndDate(contract.signDate, contract.duration, contract.contractType)
+  // /register?customerId=... : mở sẵn form cấp tài khoản cho 1 khách hàng có sẵn (nút "Cấp TK" ở danh sách KH)
+  const prefillCustomerId = normalizeObjectId(req.query.customerId)
 
-        if (!endDate) {
-          return null
-        }
-        //tính số ngày còn lại
-        const daysUntilExpiration = calculateDaysUntil(endDate)
-        if (daysUntilExpiration < 0 || daysUntilExpiration > 30) {
-          return null
-        }
+  return reply.view('register.pug', {
+    user: req.user,
+    error: null,
+    form: {},
+    prefillCustomerId: prefillCustomerId ? String(prefillCustomerId) : '',
+    ...(await loadRegisterData(req))
+  })
+})
 
-        return {
-          contractNumber: contract.contractNumber || 'Chưa có số hợp đồng',
-          employeeName: employeeNameById.get(String(contract.employeeId || '')) || 'Chưa rõ nhân viên',
-          expirationDate: endDate.toISOString().slice(0, 10),
-          daysUntilExpiration
-        }
-      })
-      .filter(Boolean)
-      .sort((left, right) => left.daysUntilExpiration - right.daysUntilExpiration)
+fastify.post('/register', { preHandler: staff }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const body = req.body || {}
+  const isAdminUser = req.user.role === 'admin'
+  const username = String(body.username || '').trim()
+  const password = String(body.password || '')
+  const name = String(body.name || '').trim()
+  const phone = String(body.phone || '').trim()
+  // Nhân viên bị ép role = 'customer' ở phía server (không tin dữ liệu từ form)
+  const role = isAdminUser ? body.role : 'customer'
 
-    //4. Kiểm tra nhân viên đến kỳ thăng lương
-    const employeesDueForRaise = employeesForRaiseCheck
-      .map(emp => {
-        const baseDate = emp.lastRaiseDate || emp.joinDate
-        //tính ngày xét lương tiếp theo
-        const nextReviewDate = calculateNextSalaryReviewDate(baseDate)
+  const fail = async message => reply.view('register.pug', {
+    user: req.user,
+    error: message,
+    form: body,
+    prefillCustomerId: '',
+    ...(await loadRegisterData(req))
+  })
 
-        if (!nextReviewDate) {
-          return null // Chưa có dữ liệu ngày vào làm/ngày tăng lương → không tính được, bỏ qua
-        }
-        //tính số ngày còn lại
-        const daysUntilReview = calculateDaysUntil(nextReviewDate)
-        if (daysUntilReview < 0 || daysUntilReview > SALARY_REVIEW_WARNING_DAYS) {
-          return null
-        }
-
-        return {
-          employeeName: emp.name || 'Chưa rõ nhân viên',
-          employeeCode: emp.employeeCode || 'Chưa có mã',
-          department: emp.department || 'Chưa cập nhật',
-          basis: emp.lastRaiseDate ? 'Từ lần tăng lương gần nhất' : 'Từ ngày vào làm (chưa từng tăng lương)',
-          nextReviewDate: nextReviewDate.toISOString().slice(0, 10),
-          daysUntilReview
-        }
-      })
-      .filter(Boolean)
-      .sort((left, right) => left.daysUntilReview - right.daysUntilReview)
-    //5. tạo dữ liệu dashboad
-    dashboardStats = {
-      employeeCount,
-      departmentCount,
-      pendingSalaryCount,
-      contractCount: contracts.length,
-      expiringContracts,
-      employeesDueForRaise
-    }
+  // Chỉ cấp tài khoản Nhân viên hoặc Khách hàng (Admin không cấp qua form này)
+  if (role !== 'user' && role !== 'customer') {
+    return reply.status(400).send('❌ Vai trò tài khoản không hợp lệ')
   }
-  //6. trả về giao diện
-  return reply.view('dashboard.pug', { user: req.user, dashboardStats, latestNotifications })
+
+  if (username.length < 3) return fail('Tên đăng nhập phải có ít nhất 3 ký tự!')
+  if (password.length < 6) return fail('Mật khẩu phải có ít nhất 6 ký tự!')
+
+  const existingUser = await db.collection('users').findOne({ username })
+  if (existingUser) return fail('Tên đăng nhập đã tồn tại!')
+
+  // ----- Xác định hồ sơ khách hàng (nếu cấp tài khoản khách hàng) -----
+  let linkedCustomer = null
+  if (role === 'customer') {
+    const linkId = normalizeObjectId(body.customerId)
+    if (linkId) {
+      linkedCustomer = await db.collection('customers').findOne({ _id: linkId })
+      if (!linkedCustomer) return fail('Không tìm thấy hồ sơ khách hàng đã chọn!')
+      if (linkedCustomer.userId) return fail('Khách hàng này đã có tài khoản đăng nhập!')
+      // Nhân viên chỉ được cấp tài khoản cho khách hàng do chính mình phụ trách
+      if (!isAdminUser && !canActOnRecord(req, linkedCustomer)) {
+        return reply.status(403).send('❌ Bạn chỉ được cấp tài khoản cho khách hàng do bạn phụ trách')
+      }
+    } else if (!name) {
+      return fail('Vui lòng nhập họ tên khách hàng!')
+    }
+  } else if (!name) {
+    return fail('Vui lòng nhập họ tên nhân viên!')
+  }
+
+  const displayName = name || (linkedCustomer && linkedCustomer.name) || username
+  const displayPhone = phone || (linkedCustomer && linkedCustomer.phone) || ''
+  const hash = await bcrypt.hash(password, 10)
+
+  const userDoc = {
+    username,
+    password: hash,
+    // admin = Quản trị viên | user = Nhân viên | customer = Khách hàng
+    role,
+    name: displayName,
+    phone: displayPhone,
+    createdBy: normalizeObjectId(req.user.id),
+    createdAt: new Date()
+  }
+
+  const { insertedId: accountId } = await db.collection('users').insertOne(userDoc)
+
+  if (role === 'user') {
+    // Cấp tài khoản Nhân viên -> tự động khởi tạo hồ sơ nhân viên tương ứng
+    await createEmployeeForUserAccount(accountId, { name: displayName, phone: displayPhone })
+  } else {
+    // Cấp tài khoản Khách hàng -> liên kết (hoặc tạo mới) hồ sơ khách hàng
+    let customerDocId
+    if (linkedCustomer) {
+      customerDocId = linkedCustomer._id
+      await db.collection('customers').updateOne({ _id: customerDocId }, { $set: { userId: accountId } })
+    } else {
+      const created = await db.collection('customers').insertOne({
+        customerCode: String(body.customerCode || '').trim() || `KH-${Date.now().toString().slice(-6)}`,
+        name: displayName,
+        phone: displayPhone,
+        email: String(body.email || '').trim(),
+        address: String(body.address || '').trim(),
+        birthDate: body.birthDate || '',
+        // Nhân viên tạo hồ sơ mới -> tự phụ trách; admin được chọn người phụ trách
+        assignedTo: isAdminUser ? normalizeObjectId(body.assignedTo) : normalizeObjectId(req.user.id),
+        note: 'Hồ sơ được tạo tự động khi cấp tài khoản đăng nhập cho khách hàng.',
+        userId: accountId,
+        createdAt: new Date()
+      })
+      customerDocId = created.insertedId
+    }
+    await db.collection('users').updateOne({ _id: accountId }, { $set: { customerId: customerDocId } })
+    await syncCustomerBirthdayReminder(customerDocId)
+  }
+
+  // Admin xem được danh sách tài khoản; nhân viên không vào được /accounts -> về danh sách khách hàng
+  reply.redirect(isAdminUser ? '/accounts' : '/customers')
 })
 
 // ================= QUẢN LÝ TÀI KHOẢN =================
-//API hiển thị danh sách tài khoản và liên kết với hồ sơ nhân viên
-fastify.get('/accounts', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+// ================= DANH SÁCH TÀI KHOẢN (chỉ Admin) =================
+// Hiển thị cả 3 loại: Admin, Nhân viên, Khách hàng. Lọc bằng ?role=admin|user|customer
 
-  //1. lấy danh sách tài khoản
-  const users = await fastify.mongo.db.collection('users').find().toArray()
-  //2. lấy danh sách hồ sơ nhân viên
-  const employees = await fastify.mongo.db.collection('employees').find().toArray()
-  // Chuẩn hóa mã nhân viên để so sánh, tránh lỗi do khoảng trắng hoặc chữ hoa/chữ thường
-  const normalizeEmployeeCode = (value) => String(value || '').trim().toUpperCase()
-  // Tạo map để tra cứu nhanh nhân viên theo userId và theo mã nhân viên
-  const employeeByUserId = new Map(
-    employees
-      .filter(employee => employee.userId)
-      .map(employee => [employee.userId.toString(), employee])
-  )
-  // Tạo map để tra cứu nhanh nhân viên theo mã nhân viên (employeeCode, code, maNV)
-  const employeeByCode = new Map(
-    employees.flatMap(employee => {
-      const codes = [employee.employeeCode, employee.code, employee.maNV]
-        .map(normalizeEmployeeCode)
-        .filter(Boolean)
+fastify.get('/accounts', { preHandler: [auth] }, async (req, reply) => {
 
-      return codes.map(code => [code, employee])
-    })
-  )
-  //3. liên kết tài khoản với hồ sơ nhân viên theo 2 cách:1. userId -> employee,2. username -> employeeCode/code/maNV
-  const accounts = users.map(account => {
-    const linkedEmployeeByUserId = employeeByUserId.get(account._id.toString())
-    const linkedEmployeeByCode = employeeByCode.get(normalizeEmployeeCode(account.username))
-    const linkedEmployee = linkedEmployeeByUserId?.employeeCode
-      ? linkedEmployeeByUserId
-      : linkedEmployeeByCode || linkedEmployeeByUserId
-    const linkedEmployeeCode = linkedEmployee?.employeeCode || linkedEmployee?.code || linkedEmployee?.maNV
-
-    return {
-      ...account,
-      //4. tạo dữ liệu hiển thị
-      linkedEmployeeName: linkedEmployee?.name || 'Chưa liên kết',
-      linkedEmployeeCode: linkedEmployeeCode || 'Chưa có mã NV',
-      passwordStatus: typeof account.password === 'string' && account.password.startsWith('$2')
-        ? 'Đã mã hóa'
-        : 'Mật khẩu thường'
-    }
-  })
-  //5. trả về giao diện danh sách tài khoản với thông tin liên kết hồ sơ nhân viên
-  return reply.view('accounts.pug', { accounts, user: req.user })
-})
-
-
-// ================= QUẢN LÝ NHÂN VIÊN =================
-// API hiển thị danh sách nhân viên
-fastify.get('/employees', { preHandler: [auth] }, async (req, reply) => {
-  // Lấy từ khóa tìm kiếm để tìm kiếm nhân viên theo tên, mã nhân viên, code hoặc maNV
-  const searchKeyword = String(req.query.keyword || '').trim()
-  const searchRegex = buildContainsRegex(searchKeyword)
-  // Phân quyền
-  //1. nếu không phải admin
   if (req.user.role !== 'admin') {
-    // 1.1 tìm hồ sơ nhân viên 
-    const employee = await findEmployeeByUserId(req.user.id, req.user.username)
-    // 1.2 nếu không tìm thấy hồ sơ nhân viên → báo lỗi
-    if (!employee) {
-      return reply.status(403).send('❌ Tài khoản của bạn chưa được liên kết với hồ sơ nhân viên.')
-    }
-    // 1.3 nếu tìm thấy hồ sơ nhân viên → chuyển hướng sang trang chi tiết nhân viên
-    return reply.redirect(`/employees/detail/${employee._id}`)
-  }
-  //2 . nếu là admin 
-  //tạo điều kiện tìm kiếm
-  const employeeFilter = {
-    employeeCode: { $exists: true, $ne: '' }
+    return reply.status(403).send(
+      '❌ Bạn không có quyền xem danh sách tài khoản'
+    )
   }
 
-  if (searchRegex) {
-    employeeFilter.$or = [
-      { name: searchRegex },
-      { employeeCode: searchRegex },
-      { code: searchRegex },
-      { maNV: searchRegex }
-    ]
-  }
-  //3. lấy danh sách nhân viên từ DB theo điều kiện tìm kiếm và sắp xếp theo tên
-  const employees = await fastify.mongo.db.collection('employees')
-    .find(employeeFilter)
+  const roleFilter = ALL_ROLES.includes(req.query.role) ? req.query.role : ''
+
+  const accounts = await fastify.mongo.db
+    .collection('users')
+    .find({ role: roleFilter || { $in: ALL_ROLES } })
     .sort({ name: 1 })
     .toArray()
-  //4. trả về giao diện danh sách nhân viên với thông tin tìm kiếm và user hiện tại
-  return reply.view('employees.pug', { employees, user: req.user, searchKeyword })
+
+  const accountsView = accounts.map(a => ({
+    ...a,
+    passwordStatus:
+      typeof a.password === 'string' &&
+      a.password.startsWith('$2')
+        ? 'Đã mã hóa'
+        : 'Mật khẩu thường'
+  }))
+
+  return reply.view('accounts.pug', {
+    accounts: accountsView,
+    user: req.user,
+    roleFilter
+  })
 })
 
-// API hiển thị form chỉnh sửa thông tin nhân viên
+// ================= SỬA TÀI KHOẢN =================
+// Admin sửa được mọi tài khoản. Nhân viên chỉ sửa được tài khoản của chính mình.
+// Khách hàng không vào được đây (sửa thông tin cá nhân qua /profile/edit).
+
+fastify.get('/accounts/edit/:id', { preHandler: staff }, async (req, reply) => {
+
+  const accountId = normalizeObjectId(req.params.id)
+  const account = accountId
+    ? await fastify.mongo.db.collection('users').findOne({ _id: accountId })
+    : null
+
+  if (!account) {
+    return reply.status(404).send('❌ Không tìm thấy tài khoản')
+  }
+
+  if (req.user.role === 'user' && String(account._id) !== String(req.user.id)) {
+    return reply.status(403).send('❌ Nhân viên chỉ được sửa tài khoản của chính mình')
+  }
+
+  return reply.view('account_edit.pug', {
+    account,
+    user: req.user,
+    error: null
+  })
+})
+
+
+fastify.post('/accounts/edit/:id', { preHandler: staff }, async (req, reply) => {
+
+  const { name, phone } = req.body
+
+  const accountId = normalizeObjectId(req.params.id)
+  const account = accountId
+    ? await fastify.mongo.db.collection('users').findOne({ _id: accountId })
+    : null
+
+  if (!account) {
+    return reply.status(404).send('❌ Không tìm thấy tài khoản')
+  }
+
+  if (req.user.role === 'user' && String(account._id) !== String(req.user.id)) {
+    return reply.status(403).send('❌ Nhân viên chỉ được sửa tài khoản của chính mình')
+  }
+
+  // Thông tin được phép sửa (vai trò không đổi được qua form)
+  const updateData = {
+    name: name || account.name,
+    phone: phone || ''
+  }
+
+  await fastify.mongo.db
+    .collection('users')
+    .updateOne({ _id: accountId }, { $set: updateData })
+
+  // Tài khoản khách hàng: đồng bộ tên / SĐT sang hồ sơ khách hàng liên kết
+  if (account.role === 'customer') {
+    await fastify.mongo.db
+      .collection('customers')
+      .updateOne(
+        { userId: accountId },
+        { $set: { name: updateData.name, phone: updateData.phone } }
+      )
+  }
+
+  // Nhân viên tự sửa tài khoản của mình không vào được /accounts (chỉ Admin) -> quay về hồ sơ
+  reply.redirect(req.user.role === 'admin' ? '/accounts' : '/profile')
+})
+
+// ================= XÓA TÀI KHOẢN =================
+// CHỈ ADMIN ĐƯỢC XÓA
+
+fastify.get('/accounts/delete/:id', { preHandler: [auth] }, async (req, reply) => {
+
+  if (req.user.role !== 'admin') {
+    return reply.status(403).send(
+      '❌ Chỉ Admin mới có quyền xóa tài khoản'
+    )
+  }
+
+  if (req.params.id === String(req.user.id)) {
+    return reply.status(400).send(
+      '❌ Không thể tự xóa tài khoản đang đăng nhập'
+    )
+  }
+
+  const accountId = normalizeObjectId(req.params.id)
+  if (!accountId) {
+    return reply.status(400).send('❌ Mã tài khoản không hợp lệ')
+  }
+
+  await fastify.mongo.db
+    .collection('users')
+    .deleteOne({ _id: accountId })
+
+  // Nhân viên bị xóa -> các khách hàng họ phụ trách chuyển về "chưa phân công"
+  await fastify.mongo.db
+    .collection('customers')
+    .updateMany(
+      { assignedTo: accountId },
+      { $set: { assignedTo: null } }
+    )
+
+  // Tài khoản khách hàng bị xóa -> GIỮ hồ sơ khách hàng (đơn hàng, bảo hành...), chỉ gỡ liên kết
+  await fastify.mongo.db
+    .collection('customers')
+    .updateMany(
+      { userId: accountId },
+      { $unset: { userId: '' } }
+    )
+
+  reply.redirect('/accounts')
+})
+
+// ================= QUẢN LÝ NHÂN VIÊN (HỒ SƠ NHÂN SỰ) =================
+// Lưu ý: khác với "users" (tài khoản đăng nhập hệ thống). Đây là hồ sơ nhân sự
+// dùng để kiểm soát số lượng nhân viên và trạng thái làm việc (đang làm / đã nghỉ).
+// Chỉ Admin được xem và thao tác.
+
+fastify.get('/employees', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const employees = await fastify.mongo.db.collection('employees')
+    .find({})
+    .sort({ createdAt: -1 })
+    .toArray()
+
+  const totalCount = employees.length
+  const activeCount = employees.filter(e => e.status === 'Đang làm việc').length
+  const inactiveCount = totalCount - activeCount
+
+  return reply.view('employees.pug', {
+    employees,
+    user: req.user,
+    totalCount,
+    activeCount,
+    inactiveCount
+  })
+})
+
+
+// Chi tiết nhân viên: toàn bộ thông tin hồ sơ + tài khoản đăng nhập liên kết
+fastify.get('/employees/detail/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const employeeId = normalizeObjectId(req.params.id)
+  const employee = employeeId
+    ? await fastify.mongo.db.collection('employees').findOne({ _id: employeeId })
+    : null
+  if (!employee) return reply.status(404).send('❌ Không tìm thấy nhân viên')
+
+  const accountId = normalizeObjectId(employee.userId)
+
+  const usersCol = fastify.mongo.db.collection('users')
+  const accountById = accountId ? await usersCol.findOne({ _id: accountId }) : null
+  // Dự phòng: hồ sơ cũ có thể thiếu userId -> tra ngược qua users.employeeId
+  const account = accountById || await usersCol.findOne({ employeeId: employee._id })
+
+  const startDateText = employee.startDate ? formatDate(employee.startDate) : ''
+  const seniority = formatSeniority(employee.startDate)
+
+  const info = {
+    birthYearText: employee.birthYear
+      ? `${employee.birthYear} (${new Date().getFullYear() - Number(employee.birthYear)} tuổi)`
+      : '',
+    startDateText: startDateText && seniority ? `${startDateText} (thâm niên ${seniority})` : startDateText,
+    createdAtText: employee.createdAt ? new Date(employee.createdAt).toLocaleString('vi-VN') : '',
+    accountRoleText: account ? (account.role === 'admin' ? 'Quản trị viên' : 'Nhân viên') : '',
+    accountCreatedAtText: account && account.createdAt ? new Date(account.createdAt).toLocaleString('vi-VN') : ''
+  }
+
+  return reply.view('employee_detail.pug', { employee, account, info, user: req.user })
+})
+
 fastify.get('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  //1.  Lấy thông tin nhân viên từ DB theo id
-  const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
-  //2. lấy danh sách phòng ban 
-  const departments = await fastify.mongo.db.collection('departments').find().sort({ name: 1 }).toArray()
-  //3. lấy danh sách chức vụ
-  const positions = await fastify.mongo.db.collection('positions').find().sort({ name: 1 }).toArray()
-  //4. trả về giao diện form chỉnh sửa thông tin nhân viên với thông tin nhân viên, danh sách phòng ban, danh sách chức vụ, user hiện tại và thông báo lỗi nếu có
-  return reply.view('edit.pug', { emp, departments, positions, user: req.user, error: req.query.error || null })
+  const employee = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
+  if (!employee) return reply.status(404).send('❌ Không tìm thấy nhân viên')
+
+  return reply.view('employee_edit.pug', {
+    employee,
+    user: req.user,
+    genders: EMPLOYEE_GENDERS,
+    statuses: EMPLOYEE_STATUSES
+  })
 })
 
 fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    //1. nhận dữ liệu từ form gửi lên (bao gồm cả file ảnh nếu có)
-    const data = await req.file()
-    //2. kiểm tra dữ liệu
-    if (!data) {
-      return reply.status(400).send('❌ Không nhận được dữ liệu form gửi lên!')
-    }
+  const body = req.body || {}
+  const name = fieldValue(body.name)
+  const birthYear = fieldValue(body.birthYear)
+  const gender = fieldValue(body.gender)
+  const phone = fieldValue(body.phone)
+  const email = fieldValue(body.email)
+  const startDate = fieldValue(body.startDate)
+  const status = fieldValue(body.status)
+  const address = fieldValue(body.address)
+  const note = fieldValue(body.note)
 
-    //3. Lấy thông tin nhân viên cũ để giữ lại ảnh cũ nếu user không tải ảnh mới
-    const oldEmp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
-    let avatarPath = oldEmp ? oldEmp.avatar : ''
+  const employee = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
+  if (!employee) return reply.status(404).send('❌ Không tìm thấy nhân viên')
 
-    // Nếu người dùng có chọn file ảnh mới để thay đổi
-    if (data && data.file && data.filename) {
-      // Lưu file ảnh mới vào thư mục uploads và tạo đường dẫn để lưu vào DB
-      const filename = Date.now() + '-' + data.filename
-      // Tạo thư mục uploads nếu chưa tồn tại
-      const uploadDir = path.join(__dirname, 'public', 'uploads')
-
-      // Nếu thư mục uploads chưa tồn tại, tạo mới
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true })
-      }
-
-      // Lưu file ảnh vào thư mục uploads
-      const saveTo = path.join(uploadDir, filename)
-      // Sử dụng Promise để đảm bảo việc lưu file hoàn tất trước khi tiếp tục
-      await new Promise((resolve, reject) => {
-        const writeStream = fs.createWriteStream(saveTo)
-        data.file.pipe(writeStream)
-        data.file.on('end', resolve)
-        data.file.on('error', reject)
-      })
-      // Cập nhật đường dẫn ảnh đại diện mới
-      avatarPath = `/public/uploads/${filename}`
-    }
-
-    // chuẩn hóa dữ liệu từ các trường text của form gửi lên
-    const updatedEmployeeData = {}
-
-    // Duyệt và chuẩn hóa dữ liệu từ các trường text của form gửi lên
-    for (const key in data.fields) {
-      const fieldValue = data.fields[key].value
-
-      // Ép kiểu dữ liệu số cho lương cứng để phục vụ tính toán tự động sau này
-      if (key === 'basicSalary') {
-        updatedEmployeeData[key] = Number(fieldValue || 0)
-      } else {
-        updatedEmployeeData[key] = fieldValue
+  await fastify.mongo.db.collection('employees').updateOne(
+    { _id: new ObjectId(req.params.id) },
+    {
+      $set: {
+        name,
+        birthYear: birthYear ? Number(birthYear) : null,
+        gender: gender || 'Nam',
+        phone: phone || '',
+        email: email || '',
+        // Chức vụ cố định là "Nhân viên", không nhận giá trị từ form
+        position: EMPLOYEE_POSITION,
+        startDate: startDate || '',
+        address: address || '',
+        note: note || '',
+        // Trạng thái thường tự động theo đăng nhập/đăng xuất; admin vẫn chỉnh tay được
+        // (VD: nhân viên tắt trình duyệt mà chưa đăng xuất nên bị kẹt "Đang làm việc")
+        status: EMPLOYEE_STATUSES.includes(status) ? status : employee.status
       }
     }
+  )
 
-    // Gán đường dẫn ảnh đại diện (giữ cũ hoặc dùng cái mới vừa upload)
-    updatedEmployeeData.avatar = avatarPath
-
-    // 4. Tiến hành cập nhật vào Cơ sở dữ liệu MongoDB
-    await fastify.mongo.db.collection('employees').updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: updatedEmployeeData }
-    )
-
-    // Nếu chức vụ là Trưởng phòng → tự động cập nhật field manager trong departments
-    const newRole = updatedEmployeeData.role || ''
-    const newDepartment = updatedEmployeeData.department || ''
-    const newName = updatedEmployeeData.name || ''
-
-    const isManagerRole = newRole.toLowerCase().includes('trưởng phòng')
-      || newRole.toLowerCase().includes('truong phong')
-      || newRole.toLowerCase().includes('trưởng')
-    // Nếu là trưởng phòng và có phòng ban + tên nhân viên → kiểm tra và cập nhật manager trong departments
-    if (isManagerRole && newDepartment && newName) {
-      // lấy thông tin nhân viên hiện tại để so sánh phòng ban cũ và mới
-      const existingManager = await fastify.mongo.db.collection('employees').findOne({
-        department: newDepartment,
-        _id: { $ne: new ObjectId(req.params.id) },
-        $or: [
-          { role: { $regex: 'trưởng phòng', $options: 'i' } },
-          { role: { $regex: 'truong phong', $options: 'i' } }
-        ]
-      })
-      // Nếu đã có trưởng phòng khác trong cùng phòng ban → báo lỗi và không cho cập nhật
-      if (existingManager) {
-        return reply.redirect(
-          `/employees/edit/${req.params.id}?error=${encodeURIComponent(`Phòng ban "${newDepartment}" đã có trưởng phòng là "${existingManager.name}". Mỗi phòng ban chỉ được có 1 trưởng phòng!`)}`
-        )
-      }
-
-      // Cập nhật manager cho đúng phòng ban của nhân viên này
-      await fastify.mongo.db.collection('departments').updateOne(
-        { name: newDepartment },
-        { $set: { manager: newName } }
-      )
-    } else if (newDepartment) {
-      // Nếu chức vụ không phải trưởng phòng, kiểm tra xem nhân viên này
-      // có đang là manager của phòng ban không → nếu có thì xóa đi
-      const dept = await fastify.mongo.db.collection('departments').findOne({ name: newDepartment })
-      if (dept && dept.manager === newName) {
-        await fastify.mongo.db.collection('departments').updateOne(
-          { name: newDepartment },
-          { $set: { manager: '' } }
-        )
-      }
-    }
-    // 5. Sau khi cập nhật thành công → chuyển hướng về danh sách nhân viên
-    return reply.redirect('/employees')
-
-  } catch (err) {
-    fastify.log.error(err)
-    return reply.status(500).send('❌ Đã xảy ra lỗi trong quá trình cập nhật hồ sơ nhân viên!')
-  }
+  reply.redirect('/employees')
 })
 
-// API xóa nhân viên (Chỉ Admin mới có quyền xóa)
+// Chuyển nhanh trạng thái Đang làm việc / Ngưng làm việc ngay trên danh sách (admin)
+fastify.get('/employees/toggle-status/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const employee = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
+  if (!employee) return reply.status(404).send('❌ Không tìm thấy nhân viên')
+
+  const newStatus = employee.status === 'Đang làm việc' ? 'Ngưng làm việc' : 'Đang làm việc'
+  await fastify.mongo.db.collection('employees').updateOne({ _id: employee._id }, { $set: { status: newStatus } })
+  reply.redirect('/employees')
+})
+
 fastify.get('/employees/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const employeeId = new ObjectId(req.params.id);
-
-  // 1. Tìm thông tin nhân viên trước khi xóa để lấy userId
-  const employee = await fastify.mongo.db.collection('employees').findOne({ _id: employeeId });
-
-  if (employee && employee.userId) {
-    // 2. Nếu nhân viên có liên kết với tài khoản, xóa tài khoản đó
-    await fastify.mongo.db.collection('users').deleteOne({ _id: new ObjectId(employee.userId) });
-  }
-
-  // 3. Xóa hồ sơ nhân viên
-  await fastify.mongo.db.collection('employees').deleteOne({ _id: employeeId });
-  // 4. Chuyển hướng về danh sách nhân viên
-  reply.redirect('/employees');
-});
-
-// API Xem chi tiết nhân viên 
-fastify.get('/employees/detail/:id', { preHandler: [auth] }, async (req, reply) => {
-  try {
-    // 1. Lấy thông tin nhân viên từ DB theo id
-    const employeeId = new ObjectId(req.params.id);
-    const emp = await fastify.mongo.db.collection('employees').findOne({ _id: employeeId });
-    // 2. kiểm tra xem có tồn tại không
-    if (!emp) {
-      return reply.code(404).send('Không tìm thấy nhân viên');
-    }
-
-    // 3. Truy vấn hợp đồng của nhân viên này
-    const contract = await fastify.mongo.db.collection('contracts').findOne({ employeeId: employeeId });
-    // 4.tạo Phân quyền: nếu user không phải admin → chỉ được xem hồ sơ của chính mình
-    if (req.user.role !== 'admin') {
-      // 5. Kiểm tra xem user hiện tại có liên kết với hồ sơ nhân viên này không
-      const employee = await findEmployeeByUserId(req.user.id, req.user.username);
-      if (!employee || employee._id.toString() !== emp._id.toString()) {
-        return reply.code(403).send('❌ Bạn không có quyền xem hồ sơ nhân viên khác');
-      }
-    }
-
-    // 6. Trả về giao diện chi tiết nhân viên với thông tin nhân viên, hợp đồng và user hiện tại
-    return reply.view('detail.pug', { emp, contract, user: req.user });
-  } catch (error) {
-    fastify.log.error(error);
-    return reply.code(500).send('Lỗi máy chủ');
-  }
-});
-
-// ================= QUẢN LÝ CHẤM CÔNG =================
-// Nhánh chấm công có 2 kiểu dữ liệu:
-// - gps-checkin: user tự check-in/check-out bằng GPS + ảnh.
-// - admin-manual: admin thêm/sửa thủ công.
-// Đây là lý do record attendance có field source.
-fastify.get('/attendance', { preHandler: [auth] }, async (req, reply) => {
-  const attendanceCollection = fastify.mongo.db.collection('attendance')
-  const employee = await findEmployeeByUserId(req.user.id, req.user.username)
-  const workDate = getWorkDate()
-  const searchKeyword = typeof req.query.keyword === 'string' ? req.query.keyword.trim() : ''
-  const searchRegex = buildContainsRegex(searchKeyword)
-  const selectedMonth = typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month.trim())
-    ? req.query.month.trim()
-    : ''
-  const selectedEmployeeId = req.user.role === 'admin'
-    ? normalizeObjectId(req.query.employeeId)
-    : employee?._id || null
-
-  const filter = req.user.role === 'admin'
-    ? {}
-    : employee
-      ? { employeeId: employee._id }
-      : { _id: null }
-
-  const attendanceRecords = await attendanceCollection
-    .find(filter)
-    .sort({ workDate: -1, checkInAt: -1, createdAt: -1 })
-    .toArray()
-
-  const enrichedAttendance = await enrichAttendanceRecords(attendanceRecords)
-  const monthFilteredAttendance = selectedMonth
-    ? enrichedAttendance.filter(record => String(record.workDate || '').startsWith(selectedMonth))
-    : enrichedAttendance
-  // Dữ liệu attendancePeople dùng để hiển thị sidebar chọn nhân viên và thống kê số ngày chấm công trong tháng.
-  const attendancePeople = req.user.role === 'admin'
-    ? [...new Map(
-      monthFilteredAttendance
-        .filter(record => record.employeeId)
-        .map(record => {
-          const employeeKey = record.employeeId.toString()
-          return [employeeKey, {
-            employeeId: employeeKey,
-            employeeName: record.employeeName,
-            totalDays: 0
-          }]
-        })
-    ).values()]
-      .map(person => ({
-        ...person,
-        totalDays: monthFilteredAttendance.filter(record => record.employeeId?.toString() === person.employeeId).length
-      }))
-      .sort((left, right) => left.employeeName.localeCompare(right.employeeName, 'vi'))
-    : []
-
-  const searchedAttendancePeople = searchRegex
-    ? attendancePeople.filter(person => searchRegex.test(person.employeeName || ''))
-    : attendancePeople
-
-  const filteredAttendance = monthFilteredAttendance.filter(record => {
-    const matchesEmployee = selectedEmployeeId
-      ? record.employeeId?.toString() === selectedEmployeeId.toString()
-      : true
-    const matchesKeyword = searchRegex
-      ? searchRegex.test(record.employeeName || '')
-      : true
-
-    return matchesEmployee && matchesKeyword
-  })
-
-  const selectedAttendancePerson = selectedEmployeeId
-    ? attendancePeople.find(person => person.employeeId === selectedEmployeeId.toString()) || null
-    : null
-
-  const todayAttendance = employee
-    ? enrichedAttendance.find(record => record.employeeId?.toString() === employee._id.toString() && record.workDate === workDate)
-    : null
-
-  return reply.view('attendance.pug', {
-    attendance: filteredAttendance,
-    attendancePeople: searchedAttendancePeople,
-    selectedAttendancePerson,
-    searchKeyword,
-    selectedMonth,
-    user: req.user,
-    employee,
-    todayAttendance,
-    attendanceSettings: {
-      ...ATTENDANCE_SETTINGS,
-      isConfigured: isAttendanceLocationConfigured()
-    },
-    error: req.query.error,
-    success: req.query.success
-  })
+  await fastify.mongo.db.collection('employees').deleteOne({ _id: new ObjectId(req.params.id) })
+  reply.redirect('/employees')
 })
 
-fastify.post('/attendance/checkin', { preHandler: [auth] }, async (req, reply) => {
-  // Điều kiện check-in thành công:
-  // 1. tài khoản phải nối được employee
-  // 2. công ty phải có tọa độ hợp lệ
-  // 3. client gửi GPS hợp lệ
-  // 4. có ảnh check-in
-  // 5. chưa check-in trong ngày
-  // 6. khoảng cách nằm trong bán kính cho phép
-  const employee = await findEmployeeByUserId(req.user.id, req.user.username)
-  if (!employee) {
-    return buildAttendanceRedirect(reply, 'error', 'Tài khoản này chưa được liên kết với hồ sơ nhân viên để chấm công.')
+// ================= DASHBOARD =================
+fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
+  // Khách hàng có trang chủ riêng (không thấy số liệu nội bộ của cửa hàng)
+  if (req.user.role === 'customer') {
+    return reply.view('portal_home.pug', await buildCustomerPortalData(req))
   }
 
-  if (!isAttendanceLocationConfigured()) {
-    return buildAttendanceRedirect(reply, 'error', 'Chưa cấu hình tọa độ công ty. Hãy cập nhật COMPANY_LATITUDE và COMPANY_LONGITUDE trong server.')
-  }
+  const customerScope = scopeFilter(req, 'assignedTo')
+  const orderScope = scopeFilter(req, 'assignedTo')
 
-  const latitude = Number(req.body.latitude)
-  const longitude = Number(req.body.longitude)
-  const accuracy = Number(req.body.accuracy || 0)
-  const photoData = req.body.photoData
+  const db = fastify.mongo.db
+  const [customerCount, openOrderCount, warranties, productCount, lowStockProducts, employeeCount, activeEmployeeCount] = await Promise.all([
+    db.collection('customers').countDocuments(customerScope),
+    db.collection('orders').countDocuments({ ...orderScope, status: 'open' }),
+    db.collection('warranties').find(req.user.role === 'admin' ? {} : { assignedTo: normalizeObjectId(req.user.id) }).toArray(),
+    db.collection('products').countDocuments({}),
+    db.collection('products').find({ stockQty: { $lte: LOW_STOCK_THRESHOLD } }).sort({ stockQty: 1 }).limit(5).toArray(),
+    db.collection('employees').countDocuments({}),
+    db.collection('employees').countDocuments({ status: 'Đang làm việc' })
+  ])
 
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return buildAttendanceRedirect(reply, 'error', 'Không nhận được GPS hợp lệ từ thiết bị của bạn.')
-  }
-
-  const photoPath = saveBase64Image(photoData, 'attendance')
-  if (!photoPath) {
-    return buildAttendanceRedirect(reply, 'error', 'Bạn cần chụp ảnh check-in trước khi gửi chấm công.')
-  }
-
-  const workDate = getWorkDate()
-  const attendanceCollection = fastify.mongo.db.collection('attendance')
-  const existingAttendance = await attendanceCollection.findOne({
-    employeeId: employee._id,
-    workDate
-  })
-
-  if (existingAttendance?.checkInAt) {
-    return buildAttendanceRedirect(reply, 'error', 'Bạn đã check-in hôm nay rồi.')
-  }
-
-  const distanceMeters = calculateDistanceMeters(
-    latitude,
-    longitude,
-    ATTENDANCE_SETTINGS.companyLatitude,
-    ATTENDANCE_SETTINGS.companyLongitude
-  )
-
-  if (distanceMeters > ATTENDANCE_SETTINGS.allowedRadiusMeters) {
-    return buildAttendanceRedirect(
-      reply,
-      'error',
-      `Bạn đang cách công ty ${distanceMeters} m, vượt quá phạm vi cho phép ${ATTENDANCE_SETTINGS.allowedRadiusMeters} m.`
-    )
-  }
-  //Tạo dữ liệu chấm công 
-  const now = new Date()
-  const attendancePayload = {
-    employeeId: employee._id,
-    employeeName: employee.name,
-    userId: normalizeObjectId(req.user.id),
-    workDate,
-    date: now,
-    status: 'present',
-    overtime: false,
-    checkInAt: now,
-    updatedAt: now,
-    location: {
-      latitude,
-      longitude,
-      accuracy,
-      distanceMeters,
-      companyName: ATTENDANCE_SETTINGS.companyName,
-      companyLatitude: ATTENDANCE_SETTINGS.companyLatitude,
-      companyLongitude: ATTENDANCE_SETTINGS.companyLongitude
-    },
-    checkInPhoto: photoPath,
-    source: 'gps-checkin'
-  }
-
-  if (existingAttendance) {
-    await attendanceCollection.updateOne(
-      { _id: existingAttendance._id },
-      { $set: attendancePayload, $setOnInsert: { createdAt: now } }
-    )
-  } else {
-    await attendanceCollection.insertOne({
-      ...attendancePayload,
-      createdAt: now
+  const expiringWarranties = warranties
+    .map(w => {
+      const days = daysUntil(w.expiryDate)
+      if (days === null || days < 0 || days > 30) return null
+      return { ...w, daysUntilExpiration: days }
     })
+    .filter(Boolean)
+    .sort((a, b) => a.daysUntilExpiration - b.daysUntilExpiration)
+
+  const dashboardStats = {
+    customerCount,
+    openOrderCount,
+    warrantyCount: warranties.length,
+    expiringWarranties,
+    productCount,
+    lowStockProducts,
+    employeeCount,
+    activeEmployeeCount
   }
 
-  return buildAttendanceRedirect(reply, 'success', 'Check-in thành công, ảnh và vị trí đã được xác thực.')
+  return reply.view('dashboard.pug', { user: req.user, dashboardStats })
 })
 
-fastify.post('/attendance/checkout', { preHandler: [auth] }, async (req, reply) => {
-  // Checkout đơn giản hơn checkin: chỉ cần đã có check-in hôm nay và chưa checkout trước đó.
-  const employee = await findEmployeeByUserId(req.user.id, req.user.username)
-  if (!employee) {
-    return buildAttendanceRedirect(reply, 'error', 'Tài khoản này chưa được liên kết với hồ sơ nhân viên để check-out.')
+
+
+// ================= KHÁCH HÀNG (CUSTOMERS) =================
+fastify.get('/customers', { preHandler: staff }, async (req, reply) => {
+  const searchKeyword = String(req.query.keyword || '').trim()
+  const searchRegex = buildContainsRegex(searchKeyword)
+  const showBirthdayOnly = req.query.filter === 'birthday'
+
+  const filter = { ...scopeFilter(req, 'assignedTo') }
+  if (searchRegex) {
+    filter.$or = [
+      { name: searchRegex },
+      { customerCode: searchRegex },
+      { phone: searchRegex },
+      { email: searchRegex }
+    ]
   }
 
-  const workDate = getWorkDate()
-  const attendanceCollection = fastify.mongo.db.collection('attendance')
-  const existingAttendance = await attendanceCollection.findOne({
-    employeeId: employee._id,
-    workDate
+  let customers = await fastify.mongo.db.collection('customers')
+    .find(filter)
+    .sort({ createdAt: -1 })
+    .toArray()
+
+  if (showBirthdayOnly) customers = customers.filter(c => isBirthdayThisMonth(c.birthDate))
+
+  const staffIds = customers.filter(c => c.assignedTo).map(c => c.assignedTo)
+  const staffList = staffIds.length
+    ? await fastify.mongo.db.collection('users').find({ _id: { $in: staffIds } }).toArray()
+    : []
+  const staffNameById = new Map(staffList.map(s => [s._id.toString(), s.name || s.username]))
+
+  const customersView = customers.map(c => ({
+    ...c,
+    assignedToName: c.assignedTo ? (staffNameById.get(c.assignedTo.toString()) || 'Chưa rõ') : 'Chưa phân công',
+    isBirthdayMonth: isBirthdayThisMonth(c.birthDate)
+  }))
+
+  return reply.view('customers.pug', {
+    customers: customersView, user: req.user, searchKeyword,
+    showBirthdayOnly
+  })
+})
+
+fastify.get('/customers/add', { preHandler: staff }, async (req, reply) => {
+  const staffList = await fastify.mongo.db.collection('users').find({ role: { $in: STAFF_ROLES } }).sort({ name: 1 }).toArray()
+  return reply.view('customer_add.pug', {
+    user: req.user, staffList
+  })
+})
+
+fastify.post('/customers/add', { preHandler: staff }, async (req, reply) => {
+  const { customerCode, name, phone, email, address, birthDate, assignedTo, note } = req.body
+
+  const inserted = await fastify.mongo.db.collection('customers').insertOne({
+    customerCode: customerCode || `KH-${Date.now().toString().slice(-6)}`,
+    name,
+    phone: phone || '',
+    email: email || '',
+    address: address || '',
+    birthDate: birthDate || '',
+    assignedTo: assignedTo ? normalizeObjectId(assignedTo) : normalizeObjectId(req.user.id),
+    note: note || '',
+    createdAt: new Date()
   })
 
-  if (!existingAttendance?.checkInAt) {
-    return buildAttendanceRedirect(reply, 'error', 'Bạn chưa check-in hôm nay nên không thể check-out.')
-  }
+  // Khách mới có sinh nhật trong tháng này -> tạo lịch nhắc ngay
+  await syncCustomerBirthdayReminder(inserted.insertedId)
 
-  if (existingAttendance.checkOutAt) {
-    return buildAttendanceRedirect(reply, 'error', 'Bạn đã check-out hôm nay rồi.')
-  }
-
-  await attendanceCollection.updateOne(
-    { _id: existingAttendance._id },
-    {
-      $set: {
-        checkOutAt: new Date(),
-        updatedAt: new Date()
-      }
-    }
-  )
-
-  return buildAttendanceRedirect(reply, 'success', 'Check-out thành công.')
+  reply.redirect('/customers')
 })
 
-fastify.get('/attendance/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const employees = await fastify.mongo.db.collection('employees').find().sort({ name: 1 }).toArray()
-  return reply.view('add_attendance.pug', { employees, user: req.user })
+fastify.get('/customers/edit/:id', { preHandler: staff }, async (req, reply) => {
+  const customer = await fastify.mongo.db.collection('customers').findOne({ _id: new ObjectId(req.params.id) })
+  if (!customer) return reply.status(404).send('❌ Không tìm thấy khách hàng')
+  const staffList = await fastify.mongo.db.collection('users').find({ role: { $in: STAFF_ROLES } }).sort({ name: 1 }).toArray()
+  return reply.view('customer_edit.pug', {
+    customer, staffList, user: req.user
+  })
 })
 
-fastify.post('/attendance/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const { employeeId, date, status } = req.body
-  const employee = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(employeeId) })
+fastify.post('/customers/edit/:id', { preHandler: staff }, async (req, reply) => {
+  const { customerCode, name, phone, email, address, birthDate, assignedTo, note } = req.body
 
-  if (!employee) {
-    return reply.code(400).send('Không tìm thấy nhân viên để chấm công.')
-  }
-
-  const workDate = date || getWorkDate()
-  const { startDate } = getDateRangeForWorkDate(workDate)
-  const now = new Date()
-
-  await fastify.mongo.db.collection('attendance').updateOne(
-    { employeeId: employee._id, workDate },
-    {
-      $set: {
-        employeeId: employee._id,
-        employeeName: employee.name,
-        userId: employee.userId || null,
-        workDate,
-        date: startDate,
-        status,
-        overtime: Boolean(req.body.overtime),
-        updatedAt: now,
-        source: 'admin-manual'
-      },
-      $setOnInsert: {
-        createdAt: now
-      }
-    },
-    { upsert: true }
-  )
-
-  reply.redirect('/attendance')
-})
-
-fastify.get('/attendance/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const attendance = await fastify.mongo.db.collection('attendance').findOne({ _id: new ObjectId(req.params.id) })
-  const employees = await fastify.mongo.db.collection('employees').find().sort({ name: 1 }).toArray()
-
-  if (!attendance) {
-    return reply.code(404).send('Không tìm thấy bản ghi chấm công.')
-  }
-
-  const normalizedAttendance = {
-    ...attendance,
-    workDate: attendance.workDate || (attendance.date instanceof Date ? getWorkDate(attendance.date) : String(attendance.date || ''))
-  }
-
-  return reply.view('edit_attendance.pug', { attendance: normalizedAttendance, employees, user: req.user })
-})
-
-fastify.post('/attendance/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const { employeeId, date, status } = req.body
-  const employee = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(employeeId) })
-
-  if (!employee) {
-    return reply.code(400).send('Không tìm thấy nhân viên để cập nhật chấm công.')
-  }
-
-  const workDate = date || getWorkDate()
-  const { startDate } = getDateRangeForWorkDate(workDate)
-
-  await fastify.mongo.db.collection('attendance').updateOne(
+  await fastify.mongo.db.collection('customers').updateOne(
     { _id: new ObjectId(req.params.id) },
     {
       $set: {
-        employeeId: employee._id,
-        employeeName: employee.name,
-        userId: employee.userId || null,
-        workDate,
-        date: startDate,
-        status,
-        overtime: Boolean(req.body.overtime),
-        updatedAt: new Date(),
-        source: 'admin-manual'
+        customerCode, name, phone: phone || '', email: email || '',
+        address: address || '', birthDate: birthDate || '',
+        assignedTo: assignedTo ? normalizeObjectId(assignedTo) : null,
+        note: note || ''
       }
     }
   )
 
-  reply.redirect('/attendance')
+  // Đổi ngày sinh / người phụ trách -> cập nhật lịch nhắc sinh nhật
+  await syncCustomerBirthdayReminder(req.params.id)
+
+  reply.redirect('/customers')
 })
 
-fastify.get('/attendance/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  await fastify.mongo.db.collection('attendance').deleteOne({ _id: new ObjectId(req.params.id) })
-  reply.redirect('/attendance')
+fastify.get('/customers/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const customerId = new ObjectId(req.params.id)
+  const customerDoc = await fastify.mongo.db.collection('customers').findOne({ _id: customerId })
+  if (customerDoc && customerDoc.userId) {
+    // Khách hàng bị xóa thì tài khoản đăng nhập của họ cũng không còn ý nghĩa
+    await fastify.mongo.db.collection('users').deleteOne({ _id: customerDoc.userId, role: 'customer' })
+  }
+  await fastify.mongo.db.collection('customers').deleteOne({ _id: customerId })
+  await fastify.mongo.db.collection('reminders').deleteMany({ customerId })
+  await fastify.mongo.db.collection('orders').deleteMany({ customerId })
+  await fastify.mongo.db.collection('warranties').deleteMany({ customerId })
+  await fastify.mongo.db.collection('activities').deleteMany({ customerId })
+  await fastify.mongo.db.collection('complaints').deleteMany({ customerId })
+  await fastify.mongo.db.collection('announcement_recipients').deleteMany({ customerId })
+  reply.redirect('/customers')
 })
 
-// ================= QUẢN LÝ PHÒNG BAN =================
-//API hiển thị danh sách phòng ban
-fastify.get('/departments', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  //lấy từ khóa tìm kiếm
-  const searchKeyword = String(req.query.keyword || '').trim()
-  // tạo điều kiện tìm kiếm phòng ban theo tên, nếu không có từ khóa thì lấy tất cả
-  const searchRegex = buildContainsRegex(searchKeyword)
-  const departmentFilter = searchRegex
-    ? { name: searchRegex }
-    : {}
+fastify.get('/customers/detail/:id', { preHandler: staff }, async (req, reply) => {
+  const customerId = new ObjectId(req.params.id)
+  const customer = await fastify.mongo.db.collection('customers').findOne({ _id: customerId })
+  if (!customer) return reply.status(404).send('❌ Không tìm thấy khách hàng')
 
-  // 1. Lấy danh sách phòng ban từ mongo
-  const departments = await fastify.mongo.db.collection('departments')
-    .find(departmentFilter)
-    .sort({ name: 1 })
-    .toArray()
+  if (!canAccessCustomer(req, customer)) {
+    return reply.status(403).send('❌ Bạn không có quyền xem khách hàng này')
+  }
 
-  // 2. Đếm số nhân viên trong từng phòng ban
-  const employeeCountByDept = await fastify.mongo.db.collection('employees').aggregate([
-    { $match: { employeeCode: { $exists: true, $ne: '' } } },
-    { $group: { _id: '$department', count: { $sum: 1 } } }
-  ]).toArray()
+  const [orders, activities, warranties, reminders, assignedStaff] = await Promise.all([
+    fastify.mongo.db.collection('orders').find({ customerId }).sort({ createdAt: -1 }).toArray(),
+    fastify.mongo.db.collection('activities').find({ customerId }).sort({ createdAt: -1 }).toArray(),
+    fastify.mongo.db.collection('warranties').find({ customerId }).sort({ purchaseDate: -1 }).toArray(),
+    fastify.mongo.db.collection('reminders').find({ customerId }).sort({ dueDate: 1 }).toArray(),
+    customer.assignedTo ? fastify.mongo.db.collection('users').findOne({ _id: customer.assignedTo }) : null
+  ])
 
-  // Tạo Map để tra cứu số lượng nhân viên theo phòng ban
-  const countMap = new Map(employeeCountByDept.map(item => [item._id, item.count]))
-  // 3.Gắn số lượng nhân viên vào từng phòng ban, nếu không có thì mặc định là 0
-  const departmentsWithCount = departments.map(dept => ({
-    ...dept,
-    employeeCount: countMap.get(dept.name) || 0
+  const staffIds = [...new Set(activities.filter(a => a.createdBy).map(a => a.createdBy.toString()))]
+  const staffList = staffIds.length
+    ? await fastify.mongo.db.collection('users').find({ _id: { $in: staffIds.map(id => new ObjectId(id)) } }).toArray()
+    : []
+  const staffNameById = new Map(staffList.map(s => [s._id.toString(), s.name || s.username]))
+
+  const activitiesView = activities.map(a => ({
+    ...a,
+    createdAtText: formatDate(a.createdAt),
+    createdByName: a.createdBy ? (staffNameById.get(a.createdBy.toString()) || 'Nhân viên') : 'Hệ thống'
   }))
-  // 4. trả về giao diện danh sách phòng ban với dữ liệu phòng ban và số lượng nhân viên
-  return reply.view('departments.pug', { departments: departmentsWithCount, user: req.user, searchKeyword })
-})
 
-// API xem danh sách nhân viên theo phòng ban
-fastify.get('/departments/:id/employees', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // 1. Lấy thông tin phòng ban theo id 
-  const dept = await fastify.mongo.db.collection('departments').findOne({ _id: new ObjectId(req.params.id) })
-  if (!dept) {
-    return reply.status(404).send('❌ Không tìm thấy phòng ban')
-  }
-  // 2. truy vấn dữ liệu nhân viên theo phòng ban và employeecode
-  const employees = await fastify.mongo.db.collection('employees').find({
-    department: dept.name,
-    employeeCode: { $exists: true, $ne: '' }
-  }).sort({ name: 1 }).toArray()
-  // 3. trả về giao diện xem danh sách nhân viên theo phòng ban với dữ liệu phòng ban và danh sách nhân viên
-  return reply.view('dept_employees.pug', { dept, employees, user: req.user })
-})
+  const ordersView = orders.map(o => ({ ...o, createdAtText: formatDate(o.createdAt) }))
 
-//API hiển thị form thêm phòng ban và xử lý POST thêm phòng ban vào mongo
-fastify.get('/departments/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  return reply.view('add_dept.pug', { user: req.user });
-});
+  const warrantiesView = warranties.map(w => ({ ...w, effectiveStatus: warrantyEffectiveStatus(w) }))
 
-fastify.post('/departments/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  await fastify.mongo.db.collection('departments').insertOne(req.body)
-  reply.redirect('/departments')
-})
-
-//API hiển thị form sửa phòng ban và xử lý POST cập nhật phòng ban vào mongo
-fastify.get('/departments/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  //lấy thông tin của 1 phòng ban theo id để hiển thị lên form sửa
-  const dept = await fastify.mongo.db.collection('departments').findOne({ _id: new ObjectId(req.params.id) });
-  return reply.view('edit_dept.pug', { dept, user: req.user });
-});
-// Xử lý POST để cập nhật phòng ban
-fastify.post('/departments/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  await fastify.mongo.db.collection('departments').updateOne(
-    { _id: new ObjectId(req.params.id) },
-    { $set: req.body }
-  )
-  reply.redirect('/departments')
-})
-
-//API xóa phòng ban theo id
-fastify.get('/departments/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  await fastify.mongo.db.collection('departments').deleteOne({ _id: new ObjectId(req.params.id) })
-  reply.redirect('/departments')
-})
-
-// ================= QUẢN LÝ CHỨC VỤ =================
-// API hiển thị danh sách chức vụ và số lượng nhân viên theo từng chức vụ
-fastify.get('/positions', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // Lấy từ khóa tìm kiếm chức vụ từ query string, nếu không có thì mặc định là chuỗi rỗng
-  const searchKeyword = String(req.query.keyword || '').trim()
-  //tạo điều kiện tìm kiếm chức vụ theo posCode, posName, code, name, nếu không có từ khóa thì lấy tất cả
-  const searchRegex = buildContainsRegex(searchKeyword)
-  const positionFilter = searchRegex
-    ? {
-      $or: [
-        { posCode: searchRegex },
-        { posName: searchRegex },
-        { code: searchRegex },
-        { name: searchRegex }
-      ]
-    }
-    : {}
-  //1. Lấy danh sách chức vụ và đếm số nhân viên theo từng chức vụ
-  const positions = await fastify.mongo.db.collection('positions')
-    .find(positionFilter)
-    .sort({ posName: 1 })
-    .toArray()
-  //2. Đếm số nhân viên theo chức vụ, chỉ tính những nhân viên có employeeCode hợp lệ
-  const employeeCountByPosition = await fastify.mongo.db.collection('employees').aggregate([
-    { $match: { employeeCode: { $exists: true, $ne: '' } } },
-    { $group: { _id: '$role', count: { $sum: 1 } } }
-  ]).toArray()
-  // Tạo Map để tra cứu số lượng nhân viên theo chức vụ, chuẩn hóa tên chức vụ để tránh sai lệch do viết hoa/thường hoặc khoảng trắng
-  const countMap = new Map(
-    employeeCountByPosition.map(item => [normalizeText(item._id), Number(item.count || 0)])
-  )
-  //3. Gắn số lượng nhân viên vào từng chức vụ, nếu không có thì mặc định là 0
-  const positionsWithCount = positions.map(position => ({
-    ...position,
-    employeeCount: countMap.get(normalizeText(position.posName || position.name)) || 0
+  const remindersView = reminders.map(r => ({
+    ...r,
+    dueDateText: formatDate(r.dueDate),
+    isOverdue: r.status !== 'Đã hoàn thành' && daysUntil(r.dueDate) !== null && daysUntil(r.dueDate) < 0
   }))
-  //4. trả về giao diện danh sách chức vụ với dữ liệu chức vụ và số lượng nhân viên
-  return reply.view('positions.pug', { positions: positionsWithCount, user: req.user, searchKeyword })
-})
 
-// API xem danh sách nhân viên theo chức vụ
-fastify.get('/positions/:id/employees', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // 1. Lấy thông tin chức vụ theo id
-  const pos = await fastify.mongo.db.collection('positions').findOne({ _id: new ObjectId(req.params.id) })
-
-  if (!pos) {
-    return reply.status(404).send('❌ Không tìm thấy chức vụ')
-  }
-
-  // 2. truy vấn dữ liệu nhân viên theo chức vụ và employeecode
-  const employees = await fastify.mongo.db.collection('employees').find({
-    role: pos.posName,
-    employeeCode: { $exists: true, $ne: '' }
-  }).sort({ name: 1 }).toArray()
-
-  // 3. trả về giao diện xem danh sách nhân viên theo chức vụ với dữ liệu chức vụ và danh sách nhân viên
-  return reply.view('position_employees.pug', { pos, employees, user: req.user })
-})
-
-// API hiển thị form thêm chức vụ và xử lý POST thêm chức vụ vào mongo
-fastify.get('/positions/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  return reply.view('add_pos.pug', { user: req.user })
-})
-
-fastify.post('/positions/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // Thêm chức vụ mới vào collection 'positions'
-  await fastify.mongo.db.collection('positions').insertOne(req.body)
-  reply.redirect('/positions')
-})
-
-// API hiển thị form sửa chức vụ và xử lý POST cập nhật chức vụ vào mongo
-fastify.get('/positions/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  //lấy thông tin của 1 chức vụ theo id để hiển thị lên form sửa
-  const pos = await fastify.mongo.db.collection('positions').findOne({ _id: new ObjectId(req.params.id) })
-  return reply.view('edit_pos.pug', { pos, user: req.user })
-})
-
-fastify.post('/positions/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  await fastify.mongo.db.collection('positions').updateOne(
-    { _id: new ObjectId(req.params.id) },
-    { $set: req.body }
-  )
-  reply.redirect('/positions')
-})
-
-// API xóa chức vụ theo id
-fastify.get('/positions/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  await fastify.mongo.db.collection('positions').deleteOne({ _id: new ObjectId(req.params.id) })
-  reply.redirect('/positions')
-})
-
-// ================= HỆ THỐNG LƯƠNG (ĐÃ CẬP NHẬT TÌM THEO MÃ TỰ NHẬP VÀ ROUTE TÍNH LƯƠNG) =================
-// API hiển thị danh sách bảng lương theo tháng, có thể tìm kiếm theo mã nhân viên (chỉ admin mới có quyền tìm kiếm)
-fastify.get('/salary', { preHandler: [auth] }, async (req, reply) => {
-  // 1. lấy tháng cần xem bảng lương từ query string, nếu không có thì mặc định là tháng hiện tại
-  const month = req.query.month || new Date().toISOString().slice(0, 7)
-  // 2. lấy mã nhân viên cần tìm nếu không có thì mặc định là chuỗi rỗng, chỉ admin mới có quyền tìm kiếm theo mã nhân viên
-  const searchEmpId = req.query.employeeId ? req.query.employeeId.trim() : ''
-  // 3. Khởi tạo các biến để lưu kết quả tìm kiếm và thông báo lỗi
-  let salaries = []
-  let searchedEmployee = null
-  let searchedEmployeeSummary = null
-  let errorMsg = null
-  //4. kiểm tra quyền vai trò
-  if (req.user.role === 'admin') {
-    //4.1 Nếu là admin, có thể tìm kiếm theo mã nhân viên
-    if (searchEmpId) {
-      try {
-        //4.1.1 hệ thống truy vấn nhân viên trong mongo theo 3 trường: employeeCode, code, maNV để tìm kiếm nhân viên
-        searchedEmployee = await fastify.mongo.db.collection('employees').findOne({
-          $or: [
-            { employeeCode: searchEmpId },
-            { code: searchEmpId },
-            { maNV: searchEmpId }
-          ]
-        })
-        //4.1.2 Nếu tìm thấy nhân viên, hệ thống sẽ đếm số ngày công thực tế dựa trên bảng attendance để tính lương
-        if (searchedEmployee) {
-          const employeeCode = searchedEmployee.employeeCode || searchedEmployee.code || searchedEmployee.maNV || 'Chưa xếp mã'
-          //4.1.3 lấy dữ liệu chấm công
-          const attendanceCount = await fastify.mongo.db.collection('attendance').countDocuments({
-            employeeId: searchedEmployee._id,
-            workDate: { $regex: `^${month}` },
-            status: 'present'
-          })
-          //4.1.4 tạo thông tin tóm tắt nhân viên để hiển thị trên giao diện
-          searchedEmployeeSummary = {
-            name: searchedEmployee.name || 'Chưa cập nhật',
-            employeeCode,
-            basicSalary: Number(searchedEmployee.basicSalary || 0),
-            role: searchedEmployee.role || 'Chưa cập nhật',
-            attendanceDays: attendanceCount
-          }
-
-          //4.1.5 truy vấn bảng lương của nhân viên đó trong tháng được chọn
-          salaries = await fastify.mongo.db.collection('salaries').find({
-            employeeId: searchedEmployee._id,
-            month: month
-          }).toArray()
-          //4.1.6 nếu không tìm thấy bảng lương nào thì hiển thị thông báo lỗi
-        } else {
-          errorMsg = `❌ Không tìm thấy nhân viên nào có mã: ${searchEmpId}`
-        }
-        // nếu có lỗi trong quá trình tìm kiếm thì hiển thị thông báo lỗi
-      } catch (err) {
-        fastify.log.error(err)
-        errorMsg = '❌ Có lỗi xảy ra trong quá trình tìm kiếm!'
-      }
-    } else {
-      // Nếu không nhập mã, hiển thị tất cả bảng lương của tháng đó
-      salaries = await fastify.mongo.db.collection('salaries').find({ month: month }).toArray()
-    }
-  } else {
-    //4.2 Đối với tài khoản User thường:
-    //4.2.1 Hệ thống sẽ tìm kiếm bảng lương của chính họ 
-    const employee = await findEmployeeByUserId(req.user.id, req.user.username)
-    const userSalaryFilter = employee
-      ? {
-        $or: [
-          { userId: new ObjectId(req.user.id) },
-          { employeeId: employee._id }
-        ]
-      }
-      : { userId: new ObjectId(req.user.id) }
-    //4.2.2 Hệ thống sẽ truy vấn bảng lương của họ trong tháng được chọn
-    salaries = await fastify.mongo.db.collection('salaries')
-      .find(userSalaryFilter)
-      .sort({ month: -1 })
-      .toArray()
-  }
-  //5. Trả về giao diện danh sách bảng lương với dữ liệu bảng lương, thông tin nhân viên tìm kiếm, tháng hiện tại và thông tin người dùng
-  return reply.view('salary_list.pug', {
-    salaries,
-    searchedEmployee,
-    searchedEmployeeSummary,
-    searchEmpId,
-    errorMsg,
-    currentMonth: month,
+  return reply.view('customer_detail.pug', {
+    customer, orders: ordersView, activities: activitiesView, warranties: warrantiesView,
+    reminders: remindersView,
+    assignedStaffName: assignedStaff ? (assignedStaff.name || assignedStaff.username) : 'Chưa phân công',
+    activityTypes: ACTIVITY_TYPES,
     user: req.user
   })
 })
 
-// API hiển thị form thiết lập lương cho nhân viên theo id, chỉ admin mới có quyền truy cập
-fastify.get('/salary/manage/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    //1. hệ thống lấy tháng cần tính lương
-    const salaryMonth = req.query.month || new Date().toISOString().slice(0, 7)
-    //2. hệ thống tìm thông tin nhân viên theo id
-    const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
-    if (!emp) {
-      return reply.status(404).send('❌ Không tìm thấy thông tin nhân viên này!')
-    }
-    
-    //3. hệ thống sẽ đếm số ngày công thực tế dựa trên bảng attendance để tính lương
-    const attendanceDays = await fastify.mongo.db.collection('attendance').countDocuments({
-      employeeId: emp._id,
-      workDate: { $regex: `^${salaryMonth}` },
-      status: 'present'
-    })
-    //4. Tạo đối tượng salarySummary để truyền vào view
-    const salarySummary = {
-      month: salaryMonth,
-      name: emp.name || 'Chưa cập nhật',
-      employeeCode: emp.employeeCode || emp.code || emp.maNV || 'Chưa xếp mã',
-      baseSalary: Number(emp.basicSalary || 0),
-      role: emp.role || 'Chưa cập nhật',
-      attendanceDays,
-      standardWorkDays: STANDARD_WORK_DAYS
-    }
-    //5. Trả về giao diện thiết lập lương với dữ liệu nhân viên, tóm tắt lương, tháng hiện tại và thông tin người dùng
-    return reply.view('salary_manage.pug', { emp, salarySummary, salaryMonth, user: req.user })
-  } catch (err) {
-    fastify.log.error(err)
-    return reply.status(500).send('❌ Đã xảy ra lỗi khi tải trang thiết lập lương!')
+// Ghi 1 hoạt động chăm sóc khách hàng THỦ CÔNG (gọi điện, nhắn Zalo, gặp trực tiếp...).
+// Trước đây hệ thống chỉ tự sinh log khi có sự kiện đơn hàng/bảo hành - nhân viên không có
+// cách nào ghi lại việc mình vừa tư vấn/chăm sóc khách, dù đây là chức năng lõi của CRM.
+fastify.post('/customers/:id/activities', { preHandler: staff }, async (req, reply) => {
+  const customerId = normalizeObjectId(req.params.id)
+  const customer = customerId ? await fastify.mongo.db.collection('customers').findOne({ _id: customerId }) : null
+  if (!customer) return reply.status(404).send('❌ Không tìm thấy khách hàng')
+
+  if (!canAccessCustomer(req, customer)) {
+    return reply.status(403).send('❌ Bạn không có quyền thao tác trên khách hàng này')
   }
+
+  const { type, note } = req.body
+  if (String(note || '').trim()) {
+    await logActivity(fastify.mongo.db, {
+      customerId,
+      type: ACTIVITY_TYPES.includes(type) ? type : 'Khác',
+      note: String(note).trim(),
+      userId: req.user.id
+    })
+  }
+
+  reply.redirect(`/customers/detail/${req.params.id}`)
 })
 
-//API tính lương và lưu vào bảng lương tạm tính
-//đây là bước sau khi người dùng nhập dữ liệu lương cho nhân viên ở trang thiết lập lương
-fastify.post('/salary/manage/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    //1. lấy id nhân viên
-    const employeeId = req.params.id;
-    //2. lấy dữ liệu từ form gửi lên: tháng, thưởng, phụ cấp, tăng lương, tạm ứng
-    const { month, bonus, allowance, raise, advance } = req.body;
+// ================= NHẮC LỊCH CHĂM SÓC KHÁCH HÀNG (REMINDERS) =================
+// Trước đây "nhắc lịch chăm sóc sau bán hàng" chỉ là 1 dòng chữ trong activity, không có
+// ngày hẹn, không có trạng thái xong/chưa xong, không hiện nhắc việc ở đâu cả. Nay thêm hẳn
+// 1 collection "reminders" để nhân viên đặt lịch gọi lại/chăm sóc khách và được nhắc đúng hạn.
 
-    //3.Hệ thống tìm thông tin gốc của nhân viên để lấy lương cứng, phòng ban, mã số...
-    const emp = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(employeeId) });
-    if (!emp) {
-      return reply.status(404).send('❌ Không tìm thấy thông tin nhân viên này!');
-    }
-    //4. lấy lương cứng và ép kiểu dữ liệu sang Number để tính toán
-    const baseSalary = Number(emp.basicSalary || 0);
-    const numBonus = Number(bonus || 0);
-    const numAllowance = Number(allowance || 0);
-    const numRaise = Number(raise || 0);
-    const numAdvance = Number(advance || 0);
-    //5. Đếm số ngày công thực tế trong tháng dựa trên bảng attendance
-    const attendanceDays = await fastify.mongo.db.collection('attendance').countDocuments({
-      employeeId: emp._id,
-      workDate: { $regex: `^${month}` },
-      status: 'present'
-    });
+fastify.post('/customers/:id/reminders', { preHandler: staff }, async (req, reply) => {
+  const customerId = normalizeObjectId(req.params.id)
+  const customer = customerId ? await fastify.mongo.db.collection('customers').findOne({ _id: customerId }) : null
+  if (!customer) return reply.status(404).send('❌ Không tìm thấy khách hàng')
 
-    //6. tính lương theo Công thức: (Lương cứng / công chuẩn) * số công + thưởng - tạm ứng
-    const finalSalary = calculateSalaryByAttendance(baseSalary, attendanceDays, numBonus, numAdvance);
-
-    //7. lưu và cập nhật lương kèm trạng thái 'pending - chờ duyệt'(lưu vào bảng lương tạm tính)
-    await fastify.mongo.db.collection('provisional_salaries').updateOne(
-      { employeeId: new ObjectId(employeeId), month: month },
-      {
-        $set: {
-          employeeId: emp._id,
-          userId: emp.userId || null,
-          month,
-          employeeCode: emp.employeeCode || emp.code || emp.maNV || 'Chưa xếp mã',
-          employeeName: emp.name || 'Nhân viên',
-          role: emp.role || 'Chưa cập nhật',
-          department: emp.department || 'Chưa cập nhật',
-          baseSalary,
-          standardWorkDays: STANDARD_WORK_DAYS,
-          attendanceDays,
-          bonus: numBonus,
-          allowance: numAllowance,
-          raise: numRaise,
-          advance: numAdvance,
-          finalSalary,
-          status: 'pending', // 🌟 Trạng thái chờ duyệt
-          updatedAt: new Date()
-        }
-      },
-      { upsert: true }
-    );
-
-    //8. Chuyển hướng về trang danh sách lương tạm tính để Admin kiểm tra và duyệt
-    reply.redirect('/salary/provisional');
-  } catch (err) {
-    fastify.log.error(err);
-    return reply.status(500).send('❌ Đã xảy ra lỗi khi tạo phiếu lương chờ duyệt!');
+  if (!canAccessCustomer(req, customer)) {
+    return reply.status(403).send('❌ Bạn không có quyền thao tác trên khách hàng này')
   }
-});
 
-
-//API hiển thị danh sách lương tạm tính và đang chờ duyệt
-fastify.get('/salary/provisional', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    //1.lấy tháng cần xem ,nếu không có lấy tháng hiện tại 
-    const currentMonth = req.query.month || new Date().toISOString().slice(0, 7);
-
-    //2. lấy ra những bản ghi của tháng yêu cầu và đang ở trạng thái chờ duyệt ('pending')
-    const provisionalSalaryDocs = await fastify.mongo.db.collection('provisional_salaries')
-      .find({ month: currentMonth, status: 'pending' }).toArray();
-
-    //tạo map để tính toán lương cuối cùng dựa trên số ngày công thực tế, thưởng và tạm ứng
-    const provisionalSalaries = provisionalSalaryDocs.map((item) => ({
-      ...item,
-      //chuẩn hóa số ngày công chuẩn để tránh lỗi khi field này bị null hoặc undefined
-      standardWorkDays: item.standardWorkDays || STANDARD_WORK_DAYS,
-      //3.tính lương cuối cùng dựa trên công thức cho từng nhân
-      finalSalary: calculateSalaryByAttendance(
-        item.baseSalary,
-        item.attendanceDays,
-        item.bonus,
-        item.advance
-      )
-    }))
-    //4. trả về giao diện danh sách lương tạm tính với dữ liệu lương tạm tính, tháng hiện tại và thông tin người dùng
-    return reply.view('salary_provisional.pug', {
-      provisionalSalaries,
-      currentMonth,
-      user: req.user
-    });
-  } catch (err) {
-    fastify.log.error(err);
-    return reply.status(500).send('❌ Đã xảy ra lỗi khi tải danh sách lương tạm tính!');
-  }
-});
-
-//API duyệt lẻ từng nhân viên trong phiếu lương tạm tính
-fastify.post('/salary/provisional/approve/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    //1. lấy id của phiếu lương tạm tính cần duyệt
-    const provisionalId = req.params.id;
-
-    //2. truy vấn phiếu lương trong collection provisional_salaries
-    const provSalary = await fastify.mongo.db.collection('provisional_salaries').findOne({ _id: new ObjectId(provisionalId) });
-    if (!provSalary) {
-      return reply.status(404).send('❌ Không tìm thấy bản ghi lương tạm tính hoặc phiếu đã được duyệt trước đó!');
-    }
-
-    //3. Tính lương cuối cùng dựa trên số ngày công thực tế, thưởng và tạm ứng
-    const finalSalary = calculateSalaryByAttendance(
-      provSalary.baseSalary,
-      provSalary.attendanceDays,
-      provSalary.bonus,
-      provSalary.advance
-    )
-    //4. lưu sang bảng lương chính thức (salaries), nếu đã tồn tại thì update, nếu chưa có thì insert mới (upsert)
-    await fastify.mongo.db.collection('salaries').updateOne(
-      { employeeId: provSalary.employeeId, month: provSalary.month },
-      {
-        $set: {
-          employeeId: provSalary.employeeId,
-          userId: provSalary.userId || null,
-          month: provSalary.month,
-          employeeCode: provSalary.employeeCode,
-          employeeName: provSalary.employeeName,
-          department: provSalary.department,
-          role: provSalary.role,
-          baseSalary: provSalary.baseSalary,
-          attendanceDays: provSalary.attendanceDays || 0,
-          bonus: provSalary.bonus,
-          allowance: provSalary.allowance,
-          raise: provSalary.raise,
-          advance: provSalary.advance,
-          standardWorkDays: provSalary.standardWorkDays || STANDARD_WORK_DAYS,
-          finalSalary,
-          updatedAt: new Date()
-        }
-      },
-      { upsert: true }
-    );
-
-    //5. Cập nhật trạng thái phiếu tạm tính sang đã duyệt 'approved' và ghi lại thời gian duyệt
-    await fastify.mongo.db.collection('provisional_salaries').updateOne(
-      { _id: new ObjectId(provisionalId) },
-      { $set: { status: 'approved', approvedAt: new Date() } }
-    );
-
-    //6. kiểm tra tăng lương 
-    // cho nhân viên, làm mốc để tính lại ngày xét tăng lương kế tiếp (xem mục Dashboard).
-    if (Number(provSalary.raise || 0) > 0) {
-      await fastify.mongo.db.collection('employees').updateOne(
-        { _id: provSalary.employeeId },
-        { $set: { lastRaiseDate: new Date() } }
-      );
-    }
-    //chuyển sang trang lương tạm tính
-    reply.redirect('/salary/provisional?month=' + provSalary.month);
-  } catch (err) {
-    fastify.log.error(err);
-    return reply.status(500).send('❌ Lỗi hệ thống khi duyệt phiếu lương!');
-  }
-});
-
-
-// API duyệt tất cả các phiếu lương tạm tính
-fastify.post('/salary/provisional/approve-all', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    //1. xác định tháng cần duyệt, nếu không có thì lấy tháng hiện tại
-    const targetMonth = req.body.month || new Date().toISOString().slice(0, 7);
-
-    //2. truy vấn và lấy toàn bộ phiếu lương trạng tái chưa duyệt  'pending' của tháng đó
-    const pendingList = await fastify.mongo.db.collection('provisional_salaries')
-      .find({ month: targetMonth, status: 'pending' }).toArray();
-
-    //3.kiểm tra dữ liệu 
-    if (pendingList.length === 0) {
-      return reply.redirect('/salary/provisional?month=' + targetMonth);
-    }
-
-    //4. duyệt đồng loạt bằng vòng lặp
-    for (const item of pendingList) {
-      //5.  Tính lương cuối cùng dựa trên số ngày công thực tế, thưởng và tạm ứng
-      const finalSalary = calculateSalaryByAttendance(
-        item.baseSalary,
-        item.attendanceDays,
-        item.bonus,
-        item.advance
-      )
-      //6. lưu sang bảng lương chính thức (salaries), nếu đã tồn tại thì update, nếu chưa có thì insert mới (upsert)
-      await fastify.mongo.db.collection('salaries').updateOne(
-        { employeeId: item.employeeId, month: targetMonth },
-        {
-          $set: {
-            employeeId: item.employeeId,
-            userId: item.userId || null,
-            month: targetMonth,
-            employeeCode: item.employeeCode,
-            employeeName: item.employeeName,
-            department: item.department,
-            role: item.role,
-            baseSalary: item.baseSalary,
-            attendanceDays: item.attendanceDays || 0,
-            bonus: item.bonus,
-            allowance: item.allowance,
-            raise: item.raise,
-            advance: item.advance,
-            standardWorkDays: item.standardWorkDays || STANDARD_WORK_DAYS,
-            finalSalary,
-            updatedAt: new Date()
-          }
-        },
-        { upsert: true }
-      );
-
-      //7. kiểm tra tăng lương cho nhân viên, làm mốc để tính lại ngày xét tăng lương kế tiếp (xem mục Dashboard).
-      if (Number(item.raise || 0) > 0) {
-        await fastify.mongo.db.collection('employees').updateOne(
-          { _id: item.employeeId },
-          { $set: { lastRaiseDate: new Date() } }
-        );
-      }
-    }
-
-    //8. sau khi duyệt hết chuyển tất cả các phiếu tạm tính sang trạng thái đã duyệt 'approved' và ghi lại thời gian duyệt
-    await fastify.mongo.db.collection('provisional_salaries').updateMany(
-      { month: targetMonth, status: 'pending' },
-      { $set: { status: 'approved', approvedAt: new Date() } }
-    );
-
-    //9 Duyệt xong chuyển hẳn sang bảng lương chính thức để xem thành quả
-    reply.redirect('/salary?month=' + targetMonth);
-  } catch (err) {
-    fastify.log.error(err);
-    return reply.status(500).send('❌ Gặp lỗi khi duyệt toàn bộ bảng lương!');
-  }
-});
-
-// ================= QUẢN LÝ HỢP ĐỒNG =================
-// API hiển thị danh sách hợp đồng, hỗ trợ tìm kiếm theo từ khóa và lọc hợp đồng sắp hết hạn
-fastify.get('/contracts', { preHandler: [auth] }, async (req, reply) => {
-  // Lấy từ khóa tìm kiếm hợp đồng từ query string, nếu không có thì mặc định là chuỗi rỗng
-  const searchKeyword = String(req.query.keyword || '').trim()
-  // tạo điều kiện tìm kiếm hợp đồng dựa trên từ khóa nhập vào (nếu có)
-  const searchRegex = buildContainsRegex(searchKeyword)
-  const showExpiringOnly = req.query.filter === 'expiring'
-  let contracts = [];
-  // 1. kiểm tra vai trò của người dùng để xác định quyền truy cập dữ liệu hợp đồng
-  if (req.user.role === 'admin') {
-    //1.1 tạo điều kiện tìm kiếm hợp đồng dựa trên từ khóa nhập vào (nếu có)
-    const contractFilter = searchRegex
-      ? { contractNumber: searchRegex }
-      : {}
-
-    // 1.2 Lấy danh sách hợp đồng từ DB, sắp xếp theo thời gian tạo và ngày ký giảm dần
-    contracts = await fastify.mongo.db.collection('contracts')
-      .find(contractFilter)
-      .sort({ createdAt: -1, signDate: -1 })
-      .toArray();
-
-    //1.3 lọc hợp đồng sắp hết hạn 
-    if (showExpiringOnly) {
-      contracts = contracts.filter(contract => {
-        const endDate = parseContractEndDate(contract.signDate, contract.duration, contract.contractType)
-        if (!endDate) {
-          return false
-        }
-
-        const daysUntilExpiration = calculateDaysUntil(endDate)
-        return daysUntilExpiration >= 0 && daysUntilExpiration <= 30
-      })
-    }
-  } else {
-    // 2. Tìm hồ sơ nhân viên
-    const employee = await findEmployeeByUserId(req.user.id, req.user.username);
-
-    if (employee) {
-      // 2.1 Chỉ lấy 1 hợp đồng mới nhất của nhân viên đó
-      const latestContract = await fastify.mongo.db.collection('contracts')
-        .findOne(
-          { employeeId: employee._id },
-          { sort: { createdAt: -1 } } // Sắp xếp giảm dần theo thời gian tạo
-        );
-
-      // Nếu có hợp đồng thì đưa vào mảng để template hiển thị đúng cấu trúc cũ
-      contracts = latestContract && (!searchRegex || searchRegex.test(String(latestContract.contractNumber || '')))
-        ? [latestContract]
-        : [];
-    } else {
-      contracts = [];
-    }
-  }
-  // 3. Trả về view hiển thị danh sách hợp đồng với dữ liệu hợp đồng, thông tin người dùng, từ khóa tìm kiếm và trạng thái lọc
-  return reply.view('contracts.pug', { contracts, user: req.user, searchKeyword, showExpiringOnly });
-});
-
-// API hiển thị form thêm hợp đồng mới và xử lý POST thêm hợp đồng vào DB
-fastify.get('/contracts/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // 1. Lấy danh sách nhân viên từ DB để hiển thị trong dropdown chọn nhân viên khi thêm hợp đồng
-  const employees = await fastify.mongo.db.collection('employees').find().sort({ name: 1 }).toArray();
-  // 2. Truyền biến employees vào view và hiện thị form thêm hợp đồng mới, kèm thông tin người dùng hiện tại
-  return reply.view('add_contract.pug', { employees, user: req.user });
-});
-
-fastify.post('/contracts/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // 1. Lấy dữ liệu từ form gửi lên: số hợp đồng, ngày ký, loại hợp đồng, thời hạn và id nhân viên
-  const { contractNumber, signDate, contractType, duration, employeeId } = req.body;
-
-  try {
-    // 2. "Hủy" hợp đồng cũ của nhân viên này
-    await fastify.mongo.db.collection('contracts').deleteMany({
-      employeeId: new ObjectId(employeeId)
-    });
-
-    // 3. Thêm hợp đồng mới vào mongo
-    await fastify.mongo.db.collection('contracts').insertOne({
-      contractNumber,
-      signDate,
-      contractType,
-      duration,
-      employeeId: new ObjectId(employeeId),
+  const { dueDate, note } = req.body
+  if (dueDate) {
+    const owner = customer.assignedTo || normalizeObjectId(req.user.id)
+    await fastify.mongo.db.collection('reminders').insertOne({
+      customerId,
+      dueDate,
+      note: note || '',
+      status: REMINDER_STATUSES[0],
+      assignedTo: owner,
+      createdBy: normalizeObjectId(req.user.id),
       createdAt: new Date()
-    });
-    // 4. Chuyển hướng về danh sách hợp đồng sau khi thêm thành công
-    reply.redirect('/contracts');
-  } catch (err) {
-    fastify.log.error(err);
-    reply.status(500).send('❌ Lỗi khi thêm hợp đồng mới');
+    })
   }
-});
 
-// API hiển thị form sửa hợp đồng và xử lý POST cập nhật hợp đồng vào DB
-fastify.get('/contracts/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // 1. Lấy thông tin hợp đồng theo id để hiển thị lên form sửa
-  const contract = await fastify.mongo.db.collection('contracts').findOne({ _id: new ObjectId(req.params.id) });
-  // 2. Lấy danh sách nhân viên từ DB để hiển thị trong thanh cuộn chọn nhân viên khi sửa hợp đồng
-  const employees = await fastify.mongo.db.collection('employees').find().toArray();
-  return reply.view('edit_contract.pug', { contract, employees, user: req.user });
-});
+  reply.redirect(`/customers/detail/${req.params.id}`)
+})
 
-fastify.post('/contracts/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // 3. Lấy dữ liệu từ form gửi lên: số hợp đồng, ngày ký, loại hợp đồng, thời hạn và id nhân viên
-  const { contractNumber, signDate, contractType, duration, employeeId } = req.body;
-  // 4. Cập nhật vào mongo dựa trên id hợp đồng
-  await fastify.mongo.db.collection('contracts').updateOne(
+// Danh sách nhắc việc: mặc định "Chờ thực hiện" và sắp xếp theo ngày hẹn gần nhất trước
+fastify.get('/reminders', { preHandler: staff }, async (req, reply) => {
+  const showDone = req.query.filter === 'done'
+  const filter = { ...scopeFilter(req, 'assignedTo') }
+  filter.status = showDone ? 'Đã hoàn thành' : 'Chờ thực hiện'
+
+  const reminders = await fastify.mongo.db.collection('reminders')
+    .find(filter)
+    .sort({ dueDate: 1 })
+    .toArray()
+
+  const customerIds = reminders.filter(r => r.customerId).map(r => r.customerId)
+  const customers = customerIds.length
+    ? await fastify.mongo.db.collection('customers').find({ _id: { $in: customerIds } }).toArray()
+    : []
+  const customerById = new Map(customers.map(c => [c._id.toString(), c]))
+
+  const remindersView = reminders.map(r => {
+    const days = daysUntil(r.dueDate)
+    return {
+      ...r,
+      dueDateText: formatDate(r.dueDate),
+      customer: r.customerId ? customerById.get(r.customerId.toString()) : null,
+      isOverdue: r.status !== 'Đã hoàn thành' && days !== null && days < 0
+    }
+  })
+
+  return reply.view('reminders.pug', { reminders: remindersView, user: req.user, showDone })
+})
+
+fastify.get('/reminders/done/:id', { preHandler: staff }, async (req, reply) => {
+  await fastify.mongo.db.collection('reminders').updateOne(
     { _id: new ObjectId(req.params.id) },
-    { $set: { contractNumber, signDate, contractType, duration, employeeId: new ObjectId(employeeId) } }
-  );
-  // 5. Chuyển hướng về danh sách hợp đồng sau khi cập nhật thành công
-  reply.redirect('/contracts');
-});
+    { $set: { status: 'Đã hoàn thành', completedAt: new Date() } }
+  )
+  reply.redirect('/reminders')
+})
 
-// API xóa hợp đồng theo id
-fastify.get('/contracts/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // 1.Xóa hợp đồng theo id từ mongo
-  await fastify.mongo.db.collection('contracts').deleteOne({ _id: new ObjectId(req.params.id) });
-  // 2. Chuyển hướng về danh sách hợp đồng sau khi xóa thành công
-  reply.redirect('/contracts');
-});
+fastify.get('/reminders/delete/:id', { preHandler: staff }, async (req, reply) => {
+  await fastify.mongo.db.collection('reminders').deleteOne({ _id: new ObjectId(req.params.id) })
+  reply.redirect('/reminders')
+})
 
-// ================= THÔNG BÁO =================
-// Mục đích: tạo 1 nơi tập trung để admin "đẩy" thông báo chung tới toàn bộ nhân viên.
-// (Quyết định - khen thưởng, kỷ luật, bổ nhiệm... được quản lý riêng ở /decisions)
-// Quy tắc quyền:
-// - admin: xem toàn bộ + thêm/sửa/xóa.
-// - user: chỉ được xem danh sách, không có quyền thêm/sửa/xóa.
-// Hỗ trợ đính kèm 1 file văn bản (ảnh/PDF...) tương tự cách làm ở employees/edit.
-
-// Hàm dùng chung để lưu file đính kèm thông báo từ multipart stream xuống /public/uploads/notifications
-async function saveNotificationAttachment(filePart) {
-  if (!filePart || !filePart.file || !filePart.filename) {
-    return null
+// ================= SẢN PHẨM / KHO ĐIỆN THOẠI (PRODUCTS) =================
+// Danh sách hiển thị: Mã SP, Tên SP, Hãng, Danh mục, Tồn kho, Chi tiết.
+// Trang "Chi tiết" hiển thị: tên SP, mã SP, bảo hành, loại, hãng, màu.
+fastify.get('/products', { preHandler: [auth] }, async (req, reply) => {
+  const searchKeyword = String(req.query.keyword || '').trim()
+  const searchRegex = buildContainsRegex(searchKeyword)
+  const filter = {}
+  if (searchRegex) {
+    filter.$or = [{ name: searchRegex }, { sku: searchRegex }, { brand: searchRegex }, { category: searchRegex }]
   }
+  // Bộ lọc "sắp hết hàng" là thông tin nội bộ -> không áp dụng cho khách hàng
+  const showLowStockOnly = req.query.filter === 'lowstock' && req.user.role !== 'customer'
+  if (showLowStockOnly) filter.stockQty = { $lte: LOW_STOCK_THRESHOLD }
 
-  const safeFilename = `${Date.now()}-${filePart.filename}`
-  const uploadDir = path.join(__dirname, 'public', 'uploads', 'notifications')
+  const products = await fastify.mongo.db.collection('products').find(filter).sort({ createdAt: -1 }).toArray()
 
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true })
-  }
+  return reply.view('products.pug', { products, user: req.user, searchKeyword, showLowStockOnly })
+})
 
-  const saveTo = path.join(uploadDir, safeFilename)
+fastify.get('/products/detail/:id', { preHandler: [auth] }, async (req, reply) => {
+  const productId = normalizeObjectId(req.params.id)
+  const product = productId ? await fastify.mongo.db.collection('products').findOne({ _id: productId }) : null
+  if (!product) return reply.status(404).send('❌ Không tìm thấy sản phẩm')
+  return reply.view('product_detail.pug', { product, user: req.user })
+})
 
-  await new Promise((resolve, reject) => {
-    const writeStream = fs.createWriteStream(saveTo)
-    filePart.file.pipe(writeStream)
-    filePart.file.on('end', resolve)
-    filePart.file.on('error', reject)
+fastify.get('/products/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  return reply.view('product_add.pug', { user: req.user, brands: PRODUCT_BRANDS, categories: PRODUCT_CATEGORIES, productTypes: PRODUCT_TYPES })
+})
+
+fastify.post('/products/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const body = req.body || {}
+  const data = parseProductFields(body)
+
+  await fastify.mongo.db.collection('products').insertOne({
+    ...data,
+    sku: data.sku || `SP-${Date.now().toString().slice(-6)}`,
+    createdAt: new Date()
+  })
+  reply.redirect('/products')
+})
+
+fastify.get('/products/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const productId = normalizeObjectId(req.params.id)
+  const product = productId ? await fastify.mongo.db.collection('products').findOne({ _id: productId }) : null
+  if (!product) return reply.status(404).send('❌ Không tìm thấy sản phẩm')
+  return reply.view('product_edit.pug', { product, user: req.user, brands: PRODUCT_BRANDS, categories: PRODUCT_CATEGORIES, productTypes: PRODUCT_TYPES })
+})
+
+fastify.post('/products/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const body = req.body || {}
+  const updateSet = parseProductFields(body)
+  // Không ghi đè mã SP bằng chuỗi rỗng
+  if (!updateSet.sku) delete updateSet.sku
+
+  await fastify.mongo.db.collection('products').updateOne(
+    { _id: new ObjectId(req.params.id) },
+    {
+      $set: updateSet,
+      // Đã bỏ mục "Trạng thái" -> dọn trường status cũ (nếu có) khỏi dữ liệu
+      $unset: { status: '' }
+    }
+  )
+  reply.redirect('/products')
+})
+
+fastify.get('/products/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  await fastify.mongo.db.collection('products').deleteOne({ _id: new ObjectId(req.params.id) })
+  reply.redirect('/products')
+})
+
+// ================= ĐƠN HÀNG BÁN (ORDERS) - trước là "deals" =================
+fastify.get('/orders', { preHandler: staff }, async (req, reply) => {
+  const searchKeyword = String(req.query.keyword || '').trim()
+  const searchRegex = buildContainsRegex(searchKeyword)
+  const filter = { ...scopeFilter(req, 'assignedTo') }
+  if (searchRegex) filter.orderCode = searchRegex
+
+  const orders = await fastify.mongo.db.collection('orders').find(filter).sort({ createdAt: -1 }).toArray()
+
+  const customers = await fastify.mongo.db.collection('customers').find().toArray()
+  const customerNameById = new Map(customers.map(c => [c._id.toString(), c.name]))
+
+  const ordersView = orders.map(o => ({
+    ...o,
+    customerName: o.customerId ? (customerNameById.get(o.customerId.toString()) || 'Chưa rõ') : 'Chưa rõ',
+    itemSummary: (o.items || []).map(i => `${i.productName} x${i.quantity}`).join(', '),
+    createdAtText: formatDate(o.createdAt)
+  }))
+
+  return reply.view('orders.pug', { orders: ordersView, user: req.user, searchKeyword })
+})
+
+// Chi tiết đơn hàng (dùng cho cả đơn đang xử lý lẫn đã xác nhận)
+fastify.get('/orders/detail/:id', { preHandler: staff }, async (req, reply) => {
+  const orderId = normalizeObjectId(req.params.id)
+  const order = orderId ? await fastify.mongo.db.collection('orders').findOne({ _id: orderId }) : null
+  if (!order) return reply.status(404).send('❌ Không tìm thấy đơn hàng')
+  if (!canActOnRecord(req, order)) return reply.status(403).send('❌ Bạn không có quyền xem đơn hàng này')
+
+  const db = fastify.mongo.db
+  const productIds = (order.items || []).map(i => i.productId).filter(Boolean)
+  const [customer, assignedStaff, products, warranties, activities] = await Promise.all([
+    order.customerId ? db.collection('customers').findOne({ _id: order.customerId }) : null,
+    order.assignedTo ? db.collection('users').findOne({ _id: order.assignedTo }) : null,
+    productIds.length ? db.collection('products').find({ _id: { $in: productIds } }).toArray() : [],
+    db.collection('warranties').find({ orderId: order._id }).sort({ purchaseDate: -1 }).toArray(),
+    db.collection('activities').find({ orderId: order._id }).sort({ createdAt: -1 }).toArray()
+  ])
+
+  const productById = new Map(products.map(p => [p._id.toString(), p]))
+  const itemsView = (order.items || []).map(i => {
+    const p = i.productId ? productById.get(i.productId.toString()) : null
+    return {
+      productName: i.productName,
+      quantity: i.quantity,
+      sku: p ? p.sku : '',
+      brand: p ? p.brand : '',
+      productId: p ? p._id : null
+    }
   })
 
-  return {
-    attachmentUrl: `/public/uploads/notifications/${safeFilename}`,
-    attachmentName: filePart.filename
-  }
-}
+  const staffIds = [...new Set(activities.filter(a => a.createdBy).map(a => a.createdBy.toString()))]
+  const staffList = staffIds.length
+    ? await db.collection('users').find({ _id: { $in: staffIds.map(id => new ObjectId(id)) } }).toArray()
+    : []
+  const staffNameById = new Map(staffList.map(s => [s._id.toString(), s.name || s.username]))
+  const activitiesView = activities.map(a => ({
+    ...a,
+    createdAtText: formatDate(a.createdAt),
+    createdByName: a.createdBy ? (staffNameById.get(a.createdBy.toString()) || 'Nhân viên') : 'Hệ thống'
+  }))
+  const warrantiesView = warranties.map(w => ({ ...w, effectiveStatus: warrantyEffectiveStatus(w) }))
 
-// Danh sách thông báo - cả admin và user đều xem được, ghim (pinned) lên đầu
-fastify.get('/notifications', { preHandler: [auth] }, async (req, reply) => {
-  const notifications = await fastify.mongo.db.collection('notifications')
-    .find()
-    .sort({ pinned: -1, createdAt: -1 })
-    .toArray()
-
-  return reply.view('notifications.pug', { notifications, user: req.user })
-})
-
-// Form đăng thông báo mới - chỉ admin
-fastify.get('/notifications/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  return reply.view('add_notification.pug', { user: req.user, error: req.query.error || null })
-})
-
-fastify.post('/notifications/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    const data = await req.file()
-    if (!data) {
-      return reply.status(400).send('❌ Không nhận được dữ liệu form gửi lên!')
-    }
-
-    const title = String(data.fields?.title?.value || '').trim()
-    const content = String(data.fields?.content?.value || '').trim()
-    const pinned = Boolean(data.fields?.pinned?.value)
-
-    if (!title || !content) {
-      return reply.redirect('/notifications/add?error=' + encodeURIComponent('Vui lòng nhập đầy đủ tiêu đề và nội dung!'))
-    }
-
-    const attachment = await saveNotificationAttachment(data)
-
-    await fastify.mongo.db.collection('notifications').insertOne({
-      title,
-      content,
-      pinned,
-      attachmentUrl: attachment?.attachmentUrl || '',
-      attachmentName: attachment?.attachmentName || '',
-      createdBy: req.user.username,
-      createdAt: new Date()
-    })
-
-    return reply.redirect('/notifications')
-  } catch (err) {
-    fastify.log.error(err)
-    return reply.status(500).send('❌ Lỗi khi đăng thông báo!')
-  }
-})
-
-// Sửa thông báo - chỉ admin
-fastify.get('/notifications/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const notification = await fastify.mongo.db.collection('notifications').findOne({ _id: new ObjectId(req.params.id) })
-
-  if (!notification) {
-    return reply.status(404).send('❌ Không tìm thấy thông báo')
-  }
-
-  return reply.view('edit_notification.pug', { notification, user: req.user, error: req.query.error || null })
-})
-
-fastify.post('/notifications/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    const data = await req.file()
-    if (!data) {
-      return reply.status(400).send('❌ Không nhận được dữ liệu form gửi lên!')
-    }
-
-    // Giữ lại file đính kèm cũ nếu admin không tải file mới lên
-    const oldNotification = await fastify.mongo.db.collection('notifications').findOne({ _id: new ObjectId(req.params.id) })
-    let attachmentUrl = oldNotification ? oldNotification.attachmentUrl : ''
-    let attachmentName = oldNotification ? oldNotification.attachmentName : ''
-
-    const newAttachment = await saveNotificationAttachment(data)
-    if (newAttachment) {
-      attachmentUrl = newAttachment.attachmentUrl
-      attachmentName = newAttachment.attachmentName
-    }
-
-    const title = String(data.fields?.title?.value || '').trim()
-    const content = String(data.fields?.content?.value || '').trim()
-    const pinned = Boolean(data.fields?.pinned?.value)
-
-    if (!title || !content) {
-      return reply.redirect(`/notifications/edit/${req.params.id}?error=` + encodeURIComponent('Vui lòng nhập đầy đủ tiêu đề và nội dung!'))
-    }
-
-    await fastify.mongo.db.collection('notifications').updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { title, content, pinned, attachmentUrl, attachmentName, updatedAt: new Date() } }
-    )
-
-    return reply.redirect('/notifications')
-  } catch (err) {
-    fastify.log.error(err)
-    return reply.status(500).send('❌ Lỗi khi cập nhật thông báo!')
-  }
-})
-
-// Xóa thông báo - chỉ admin
-fastify.get('/notifications/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    const notification = await fastify.mongo.db.collection('notifications').findOne({ _id: new ObjectId(req.params.id) })
-
-    // Xóa luôn file đính kèm trên đĩa nếu có, tránh rác trong /public/uploads
-    if (notification && notification.attachmentUrl) {
-      const filePath = path.join(__dirname, notification.attachmentUrl.replace(/^\/public\//, 'public/'))
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath)
-      }
-    }
-
-    await fastify.mongo.db.collection('notifications').deleteOne({ _id: new ObjectId(req.params.id) })
-    reply.redirect('/notifications')
-  } catch (err) {
-    fastify.log.error(err)
-    return reply.status(500).send('❌ Lỗi khi xóa thông báo!')
-  }
-})
-
-// ================= QUYẾT ĐỊNH =================
-
-// Hàm lưu file đính kèm cho quyết định 
-async function saveDecisionAttachment(data) {
-  // Kiểm tra xem data có hợp lệ không
-  const filePart = data
-  if (!filePart || !filePart.file || !filePart.filename) {
-    return null
-  }
-
-  // Bổ sung các loại tệp Word vào đây
-  const allowedTypes = [
-    // Hình ảnh
-    'image/jpeg', 'image/png', 'image/webp', 'image/gif',
-    // PDF
-    'application/pdf',
-    // MS Word
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    // MS Excel
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    // MS PowerPoint
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    // Định dạng nén phổ biến
-    'application/zip',
-    'application/x-rar-compressed'
-  ];
-  // Kiểm tra loại tệp đính kèm
-  if (filePart.mimetype && !allowedTypes.includes(filePart.mimetype)) {
-    console.log("Loại tệp không được hỗ trợ:", filePart.mimetype);
-    return null
-  }
-
-  // Tạo tên tệp an toàn bằng cách thay thế các ký tự không hợp lệ
-  const safeFilename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${filePart.filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-  // Tạo thư mục lưu trữ nếu chưa tồn tại
-  const uploadDir = path.join(__dirname, 'public', 'uploads', 'decisions')
-  
-  // Kiểm tra và tạo thư mục nếu chưa tồn tại
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true })
-  }
-
-  const saveTo = path.join(uploadDir, safeFilename)
-  await new Promise((resolve, reject) => {
-    const writeStream = fs.createWriteStream(saveTo)
-    filePart.file.pipe(writeStream)
-    filePart.file.on('end', resolve)
-    filePart.file.on('error', reject)
+  return reply.view('order_detail.pug', {
+    order: {
+      ...order,
+      createdAtText: formatDate(order.createdAt),
+      confirmedAtText: order.confirmedAt ? formatDate(order.confirmedAt) : ''
+    },
+    customer,
+    assignedStaffName: assignedStaff ? (assignedStaff.name || assignedStaff.username) : 'Chưa phân công',
+    items: itemsView,
+    totalQuantity: itemsView.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0),
+    warranties: warrantiesView,
+    activities: activitiesView,
+    user: req.user
   })
-  // Trả về URL và tên tệp đính kèm để lưu vào cơ sở dữ liệu
-  return {
-    attachmentUrl: `/public/uploads/decisions/${safeFilename}`,
-    attachmentName: filePart.filename
-  }
-}
-
-// Hàm tìm employeeId dựa trên userId và username của người dùng
-async function getEmployeeIdForUser(userId, username) {
-  // Tìm employee dựa trên userId và username
-  const emp = await findEmployeeByUserId(userId, username)
-  // Nếu tìm thấy, trả về _id của employee, nếu không tìm thấy, trả về null
-  return emp ? emp._id : null
-}
-
-// API hiển thị danh sách quyết định, hỗ trợ phân quyền admin và user
-
-fastify.get('/decisions', { preHandler: [auth] }, async (req, reply) => {
-  // hàm truy vấn danh sách quyết định dựa trên vai trò của người dùng
-  let decisions
-  //1. kiểm tra vai trò người dùng
-  if (req.user.role === 'admin') {
-    // 1.1. lấy toàn bộ quyết định từ mongo
-    decisions = await fastify.mongo.db.collection('decisions')
-      .find()
-      .sort({ pinned: -1, createdAt: -1 })
-      .toArray()
-
-    // 1.2 Tạo danh sách tất cả _id của nhân viên có trường recipients (người nhận quyết định) của các quyết định để tra cứu tên nhân viên
-    const allEmpIds = [...new Set(
-      decisions.flatMap(d => (d.recipients || []).map(id => id.toString()))
-    )]
-    // Tạo Map để tra cứu nhanh tên nhân viên theo _id để lấy thông tin nhân viên
-    let empMap = new Map()
-    if (allEmpIds.length > 0) {
-      // 1.3.Lấy tất cả nhân viên có _id nằm trong danh sách từ DB 
-      const emps = await fastify.mongo.db.collection('employees')
-        .find({ _id: { $in: allEmpIds.map(id => new ObjectId(id)) } })
-        .toArray()
-      empMap = new Map(emps.map(e => [e._id.toString(), e.name]))
-    }
-
-    // Thêm trường recipientNames vào mỗi quyết định để hiển thị tên nhân viên nhận quyết định
-    decisions = decisions.map(d => ({
-      ...d,
-      recipientNames: d.recipients && d.recipients.length > 0
-        ? d.recipients.map(id => empMap.get(id.toString()) || 'Không rõ')
-        : []
-    }))
-  } else {
-    // User thường
-    // 1.4. Tìm employeeId của user hiện tại
-    const emp = await findEmployeeByUserId(req.user.id, req.user.username)
-    //1.5 Nếu không tìm thấy employeeId, trả về danh sách rỗng
-    if (!emp) {
-      return reply.view('decisions.pug', { decisions: [], user: req.user })
-    }
-    //1.6 nếu tìm thấy employeeId, lấy _id của employee để lọc quyết định
-    const empId = emp._id
-
-    //1.7 truy vấn mongo để Lấy quyết định mà recipients rỗng (tất cả) hoặc chứa employeeId của họ
-    decisions = await fastify.mongo.db.collection('decisions')
-      .find({
-        $or: [
-          { recipients: { $exists: false } },
-          { recipients: { $size: 0 } },
-          { recipients: empId }
-        ]
-      })
-      .sort({ pinned: -1, createdAt: -1 })
-      .toArray()
-  }
-  //1.8 trả về giao diện hiển thị danh sách quyết định với dữ liệu quyết định và thông tin người dùng hiện tại
-  return reply.view('decisions.pug', { decisions, user: req.user })
 })
 
-// API hiển thị form thêm quyết định mới và xử lý POST thêm quyết định vào DB
-fastify.get('/decisions/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // 1.Lấy danh sách nhân viên từ DB để hiển thị trong dropdown(thanh cuộn) chọn người nhận quyết định khi thêm quyết định
-  const employees = await fastify.mongo.db.collection('employees')
-    .find({ employeeCode: { $exists: true, $ne: '' } })
-    .sort({ name: 1 })
-    .toArray()
-  // 2. trả về giao diện form thêm quyết định mới với dữ liệu danh sách nhân viên và thông tin người dùng hiện tại, kèm thông báo lỗi nếu có
-  return reply.view('add_decision.pug', { user: req.user, employees, error: req.query.error || null })
+fastify.get('/orders/add', { preHandler: staff }, async (req, reply) => {
+  const [customers, products] = await Promise.all([
+    fastify.mongo.db.collection('customers').find(scopeFilter(req, 'assignedTo')).sort({ name: 1 }).toArray(),
+    fastify.mongo.db.collection('products').find().sort({ name: 1 }).toArray()
+  ])
+  return reply.view('order_add.pug', { customers, products, user: req.user, error: null, form: null })
 })
 
-fastify.post('/decisions/add', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    // 1. nhận dữ liệu từ form gửi lên
-    const data = await req.file()
-    // 2. Kiểm tra dữ liệu form gửi lên có hợp lệ không
-    if (!data) {
-      return reply.status(400).send('❌ Không nhận được dữ liệu form gửi lên!')
-    }
-    //3. lấy dữ liệu từ form gửi lên
-    const title = String(data.fields?.title?.value || '').trim()
-    const content = String(data.fields?.content?.value || '').trim()
-    const pinned = Boolean(data.fields?.pinned?.value)
-    const recipientType = String(data.fields?.recipientType?.value || 'specific').trim()
-    //4. kiểm tra dữ liệu nhập vào
-    if (!title || !content) {
-      return reply.redirect('/decisions/add?error=' + encodeURIComponent('Vui lòng nhập đầy đủ tiêu đề và nội dung!'))
-    }
+fastify.post('/orders/add', { preHandler: staff }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const { customerId, note } = req.body
+  const productIds = toArrayField(req.body.productId)
+  const quantities = toArrayField(req.body.quantity)
 
-    //5. Xử lý danh sách nhân viên nhận . Nếu recipientType = 'specific' thì lấy danh sách recipients từ form, nếu rỗng thì báo lỗi
-    let recipients = []
-    if (recipientType === 'specific') {
-      const rawRecipients = data.fields?.recipients
-      if (rawRecipients) {
-        // Có thể là 1 giá trị hoặc mảng
-        const recipientValues = Array.isArray(rawRecipients)
-          ? rawRecipients.map(r => r.value)
-          : [rawRecipients.value]
-
-        recipients = recipientValues
-          .filter(v => v && ObjectId.isValid(v))
-          .map(v => new ObjectId(v))
+  // Hiển thị lại form tạo đơn kèm thông báo lỗi, giữ nguyên dữ liệu nhân viên đã nhập
+  const renderError = async message => {
+    const [customers, products] = await Promise.all([
+      db.collection('customers').find(scopeFilter(req, 'assignedTo')).sort({ name: 1 }).toArray(),
+      db.collection('products').find().sort({ name: 1 }).toArray()
+    ])
+    return reply.view('order_add.pug', {
+      customers, products, user: req.user, error: message,
+      form: {
+        customerId: String(customerId || ''),
+        note: note || '',
+        rows: productIds.map((pid, i) => ({ productId: String(pid || ''), quantity: quantities[i] || 1 }))
       }
-
-      if (recipients.length === 0) {
-        return reply.redirect('/decisions/add?error=' + encodeURIComponent('Vui lòng chọn ít nhất 1 nhân viên nhận quyết định!'))
-      }
-    }
-    
-    //6. Lưu file đính kèm (nếu có)
-    const attachment = await saveDecisionAttachment(data)
-    //7. Lưu quyết định vào DB với các trường: title, content, type, pinned, recipients, attachmentUrl, attachmentName, createdBy, createdAt
-    await fastify.mongo.db.collection('decisions').insertOne({
-      title,
-      content,
-      type: 'Quyết định',
-      pinned,
-      recipients, // [] = tất cả, [ObjectId,...] = chỉ những nhân viên này
-      attachmentUrl: attachment?.attachmentUrl || '',
-      attachmentName: attachment?.attachmentName || '',
-      createdBy: req.user.username,
-      createdAt: new Date()
     })
-    //8. Chuyển hướng về danh sách quyết định sau khi thêm thành công
-    return reply.redirect('/decisions')
+  }
+
+  // Gộp các dòng trùng sản phẩm (VD: chọn iPhone 15 ở 2 dòng) để kiểm tra kho theo TỔNG số lượng
+  const merged = new Map()
+  for (let i = 0; i < productIds.length; i++) {
+    const pid = normalizeObjectId(productIds[i])
+    const qty = Math.floor(Number(quantities[i]) || 0)
+    if (!pid || qty <= 0) continue
+    const key = pid.toString()
+    if (merged.has(key)) {
+      merged.get(key).quantity += qty
+    } else {
+      const product = await db.collection('products').findOne({ _id: pid })
+      if (!product) continue
+      merged.set(key, { product, quantity: qty })
+    }
+  }
+
+  if (merged.size === 0) {
+    return renderError('Vui lòng chọn ít nhất một sản phẩm và số lượng hợp lệ.')
+  }
+
+  // ----- Kiểm tra tồn kho trước khi tạo đơn -----
+  const problems = []
+  for (const { product, quantity } of merged.values()) {
+    const available = Math.max(0, Number(product.stockQty) || 0)
+    if (available <= 0) {
+      problems.push(`"${product.name}" đã hết hàng`)
+    } else if (quantity > available) {
+      problems.push(`"${product.name}" chỉ còn ${available} sản phẩm (bạn chọn ${quantity})`)
+    }
+  }
+  if (problems.length) {
+    return renderError(`Đơn hàng này hiện không có sẵn: ${problems.join('; ')}.`)
+  }
+
+  const items = [...merged.values()].map(({ product, quantity }) => ({
+    productId: product._id,
+    productName: product.name,
+    quantity
+  }))
+
+  // Trừ kho nguyên tử TRƯỚC khi tạo đơn (chặn trường hợp 2 người cùng mua món cuối cùng)
+  const reservation = await reserveStock(items)
+  if (!reservation.ok) {
+    return renderError(`Đơn hàng này hiện không có sẵn: "${reservation.failedItem.productName}" vừa hết hàng hoặc không đủ số lượng.`)
+  }
+
+  const orderCode = `DH-${Date.now().toString().slice(-6)}`
+  const owner = await resolveOwner(db, customerId, req.user.id)
+
+  let insertedId
+  try {
+    const result = await db.collection('orders').insertOne({
+      orderCode,
+      customerId: normalizeObjectId(customerId),
+      items,
+      assignedTo: owner,
+      note: note || '',
+      status: 'open',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+    insertedId = result.insertedId
+  } catch (err) {
+    // Tạo đơn lỗi -> hoàn lại kho đã trừ để không bị hụt hàng oan
+    await adjustStock(items, 1)
+    throw err
+  }
+
+  await logActivity(db, {
+    customerId,
+    orderId: insertedId,
+    type: 'Đơn hàng',
+    note: `Tạo đơn ${orderCode} - ${items.length} sản phẩm`,
+    userId: req.user.id
+  })
+
+  reply.redirect('/orders')
+})
+
+fastify.get('/orders/edit/:id', { preHandler: staff }, async (req, reply) => {
+  const order = await fastify.mongo.db.collection('orders').findOne({ _id: new ObjectId(req.params.id) })
+  if (!order) return reply.status(404).send('❌ Không tìm thấy đơn hàng')
+  if (!canActOnRecord(req, order)) return reply.status(403).send('❌ Bạn không có quyền sửa đơn hàng này')
+  const customers = await fastify.mongo.db.collection('customers').find().sort({ name: 1 }).toArray()
+  return reply.view('order_edit.pug', { order, customers, user: req.user })
+})
+
+// Lưu ý: danh sách sản phẩm trong đơn không chỉnh sửa được ở đây để tránh sai lệch tồn kho.
+// Muốn thay đổi sản phẩm/số lượng, xóa đơn (admin, tự hoàn kho nếu đang xử lý) rồi tạo đơn mới.
+fastify.post('/orders/edit/:id', { preHandler: staff }, async (req, reply) => {
+  const existingOrder = await fastify.mongo.db.collection('orders').findOne({ _id: new ObjectId(req.params.id) })
+  if (!existingOrder) return reply.status(404).send('❌ Không tìm thấy đơn hàng')
+  if (!canActOnRecord(req, existingOrder)) return reply.status(403).send('❌ Bạn không có quyền sửa đơn hàng này')
+
+  const { customerId, note } = req.body
+  const owner = await resolveOwner(fastify.mongo.db, customerId, req.user.id)
+  await fastify.mongo.db.collection('orders').updateOne(
+    { _id: new ObjectId(req.params.id) },
+    {
+      $set: {
+        customerId: normalizeObjectId(customerId),
+        assignedTo: owner,
+        note: note || '',
+        updatedAt: new Date()
+      }
+    }
+  )
+  reply.redirect('/orders')
+})
+
+// Xác nhận đơn hàng: đây là CRM nên chỉ ghi nhận nhân viên đã xác nhận đơn với khách,
+// không theo dõi quá trình giao dịch thực tế (hoàn tất / hủy). Tồn kho đã trừ lúc tạo đơn nên giữ nguyên.
+fastify.get('/orders/confirm/:id', { preHandler: staff }, async (req, reply) => {
+  const order = await fastify.mongo.db.collection('orders').findOne({ _id: new ObjectId(req.params.id) })
+  if (!order) return reply.status(404).send('❌ Không tìm thấy đơn hàng')
+  if (!canActOnRecord(req, order)) return reply.status(403).send('❌ Bạn không có quyền thao tác trên đơn hàng này')
+  if (order.status !== 'open') return reply.redirect('/orders')
+  await fastify.mongo.db.collection('orders').updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { status: 'confirmed', confirmedAt: new Date(), updatedAt: new Date() } }
+  )
+
+  // Tự tạo lịch chăm sóc sau bán hàng (7 ngày, 1 tháng) cho nhân viên phụ trách khách.
+  // Lỗi ở bước này không được làm hỏng việc xác nhận đơn (đơn đã được cập nhật ở trên).
+  let followupLabels = []
+  if (order.customerId) {
+    try {
+      const db = fastify.mongo.db
+      const owner = await resolveOwner(db, order.customerId, req.user.id)
+      const itemSummary = (order.items || []).map(i => `${i.productName} x${i.quantity}`).join(', ')
+      for (const f of AFTER_SALES_FOLLOWUPS) {
+        const created = await createAutoReminder(db, {
+          autoKey: `after-sales:${order._id}:${f.days}d`,
+          customerId: order.customerId,
+          dueDate: addDaysFromToday(f.days),
+          note: `Chăm sóc sau bán hàng (${f.label}) - đơn ${order.orderCode} (${itemSummary}): ${f.prompt}.`,
+          assignedTo: owner,
+          source: 'after-sales',
+          orderId: order._id
+        })
+        if (created) followupLabels.push(f.label)
+      }
+    } catch (err) {
+      fastify.log.error(err)
+    }
+  }
+
+  await logActivity(fastify.mongo.db, {
+    customerId: order.customerId,
+    orderId: order._id,
+    type: 'Đơn hàng',
+    note: followupLabels.length
+      ? `Xác nhận đơn ${order.orderCode}. Đã tự tạo lịch chăm sóc sau bán hàng: ${followupLabels.join(', ')}.`
+      : `Xác nhận đơn ${order.orderCode}.`,
+    userId: req.user.id
+  })
+  reply.redirect('/orders')
+})
+
+// CHỈ ADMIN được xóa đơn hàng (trước đây mọi nhân viên đều xóa được, kể cả đơn đã hoàn tất,
+// và không hề để lại dấu vết - rủi ro che giấu doanh thu). Nay giới hạn quyền + ghi log.
+fastify.get('/orders/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const order = await fastify.mongo.db.collection('orders').findOne({ _id: new ObjectId(req.params.id) })
+  if (order && order.status === 'open') {
+    await adjustStock(order.items, 1)
+  }
+  await fastify.mongo.db.collection('orders').deleteOne({ _id: new ObjectId(req.params.id) })
+  if (order) {
+    // Đơn đã xóa thì không còn lý do nhắc chăm sóc sau bán hàng cho đơn đó
+    await fastify.mongo.db.collection('reminders').deleteMany({
+      orderId: order._id, auto: true, status: 'Chờ thực hiện'
+    })
+    await logActivity(fastify.mongo.db, {
+      customerId: order.customerId,
+      orderId: order._id,
+      type: 'Đơn hàng',
+      note: `Đã XÓA đơn ${order.orderCode} (bởi quản trị viên).`,
+      userId: req.user.id
+    })
+  }
+  reply.redirect('/orders')
+})
+
+// ================= PHIẾU BẢO HÀNH (WARRANTIES) - trước là "contracts" =================
+fastify.get('/warranties', { preHandler: staff }, async (req, reply) => {
+  const searchKeyword = String(req.query.keyword || '').trim()
+  const searchRegex = buildContainsRegex(searchKeyword)
+  const filter = { ...scopeFilter(req, 'assignedTo') }
+  if (searchRegex) filter.warrantyCode = searchRegex
+
+  let warranties = await fastify.mongo.db.collection('warranties').find(filter).sort({ purchaseDate: -1 }).toArray()
+
+  const showExpiringOnly = req.query.filter === 'expiring'
+  if (showExpiringOnly) {
+    warranties = warranties.filter(w => {
+      const days = daysUntil(w.expiryDate)
+      return days !== null && days >= 0 && days <= 30
+    })
+  }
+
+  const customers = await fastify.mongo.db.collection('customers').find().toArray()
+  const customerNameById = new Map(customers.map(c => [c._id.toString(), c.name]))
+
+  // Lấy mã đơn hàng cho từng phiếu (nhiều phiếu có thể cùng thuộc 1 đơn)
+  const orderIds = [...new Set(warranties.filter(w => w.orderId).map(w => String(w.orderId)))].map(id => new ObjectId(id))
+  const orderDocs = orderIds.length
+    ? await fastify.mongo.db.collection('orders').find({ _id: { $in: orderIds } }, { projection: { orderCode: 1 } }).toArray()
+    : []
+  const orderCodeById = new Map(orderDocs.map(o => [o._id.toString(), o.orderCode]))
+
+  const warrantiesView = warranties.map(w => ({
+    ...w,
+    customerName: w.customerId ? (customerNameById.get(w.customerId.toString()) || 'Chưa rõ') : 'Chưa rõ',
+    orderCode: w.orderId ? (orderCodeById.get(w.orderId.toString()) || null) : null,
+    effectiveStatus: warrantyEffectiveStatus(w)
+  }))
+
+  return reply.view('warranties.pug', { warranties: warrantiesView, user: req.user, searchKeyword, showExpiringOnly })
+})
+
+fastify.get('/warranties/add', { preHandler: staff }, async (req, reply) => {
+  const orderId = req.query.orderId ? normalizeObjectId(req.query.orderId) : null
+  let order = null
+  let orderCustomer = null
+  if (orderId) {
+    order = await fastify.mongo.db.collection('orders').findOne({ _id: orderId })
+    if (order && order.customerId) {
+      orderCustomer = await fastify.mongo.db.collection('customers').findOne({ _id: order.customerId })
+    }
+  }
+  // Phiếu bảo hành chỉ được tạo từ đơn hàng (nút "Tạo bảo hành" ở mục đơn hàng bán)
+  if (!order) return reply.redirect('/orders')
+  const [customers, products] = await Promise.all([
+    fastify.mongo.db.collection('customers').find(scopeFilter(req, 'assignedTo')).sort({ name: 1 }).toArray(),
+    fastify.mongo.db.collection('products').find().sort({ name: 1 }).toArray()
+  ])
+  const defaultPurchaseDate = order ? toDateInputValue(order.createdAt) : ''
+
+  // Mỗi sản phẩm trong 1 đơn chỉ được tạo bảo hành 1 lần: loại các sản phẩm đã có phiếu khỏi danh sách chọn
+  let availableItems = []
+  let warrantiedItems = []
+  if (order) {
+    const existing = await fastify.mongo.db.collection('warranties')
+      .find({ orderId: order._id }, { projection: { productId: 1 } }).toArray()
+    const warrantiedIds = new Set(existing.filter(w => w.productId).map(w => String(w.productId)))
+    const items = order.items || []
+    availableItems = items.filter(i => i.productId && !warrantiedIds.has(String(i.productId)))
+    warrantiedItems = items.filter(i => i.productId && warrantiedIds.has(String(i.productId)))
+  }
+  return reply.view('warranty_add.pug', { customers, products, order, orderCustomer, defaultPurchaseDate, availableItems, warrantiedItems, user: req.user })
+})
+
+fastify.post('/warranties/add', { preHandler: staff }, async (req, reply) => {
+  const { customerId, productId, purchaseDate, warrantyMonths, status, note, orderId } = req.body
+  if (!orderId) return reply.status(400).send('❌ Phiếu bảo hành phải được tạo từ một đơn hàng')
+  const months = Number(warrantyMonths) || 12
+  const purchase = purchaseDate || new Date().toISOString().slice(0, 10)
+
+  // Nếu tạo từ một đơn hàng, lấy đúng tên sản phẩm đã bán trong đơn (dữ liệu gốc, đáng tin
+  // hơn việc tra lại kho vì sản phẩm trong kho có thể đã đổi tên/bị xóa sau khi bán).
+  let productName = 'Chưa rõ sản phẩm'
+  const resolvedProductId = productId ? normalizeObjectId(productId) : null
+  if (orderId) {
+    const orderObjectId = normalizeObjectId(orderId)
+    const order = await fastify.mongo.db.collection('orders').findOne({ _id: orderObjectId })
+    const item = order && (order.items || []).find(i => i.productId && String(i.productId) === String(productId))
+    if (!item) return reply.status(400).send('❌ Sản phẩm này không thuộc đơn hàng đã chọn')
+
+    // Mỗi sản phẩm trong mỗi đơn hàng chỉ được tạo bảo hành 1 lần
+    const duplicate = await fastify.mongo.db.collection('warranties').findOne({
+      orderId: orderObjectId,
+      productId: resolvedProductId
+    })
+    if (duplicate) {
+      return reply.status(400).send(`❌ Sản phẩm "${item.productName}" trong đơn hàng này đã có phiếu bảo hành ${duplicate.warrantyCode}, không thể tạo thêm`)
+    }
+    productName = item.productName
+  } else if (resolvedProductId) {
+    const product = await fastify.mongo.db.collection('products').findOne({ _id: resolvedProductId })
+    if (product) productName = product.name
+  }
+
+  const owner = await resolveOwner(fastify.mongo.db, customerId, req.user.id)
+  const warrantyCode = `BH-${Date.now().toString().slice(-6)}`
+
+  await fastify.mongo.db.collection('warranties').insertOne({
+    warrantyCode,
+    customerId: normalizeObjectId(customerId),
+    orderId: orderId ? normalizeObjectId(orderId) : null,
+    productId: resolvedProductId,
+    productName,
+    purchaseDate: purchase,
+    warrantyMonths: months,
+    expiryDate: addMonths(purchase, months),
+    status: status || 'Còn bảo hành',
+    assignedTo: owner,
+    note: note || '',
+    createdAt: new Date()
+  })
+
+  await logActivity(fastify.mongo.db, {
+    customerId,
+    orderId: orderId || null,
+    type: 'Bảo hành',
+    note: `Tạo phiếu bảo hành ${warrantyCode} cho ${productName}`,
+    userId: req.user.id
+  })
+
+  reply.redirect('/warranties')
+})
+
+fastify.get('/warranties/edit/:id', { preHandler: staff }, async (req, reply) => {
+  const warranty = await fastify.mongo.db.collection('warranties').findOne({ _id: new ObjectId(req.params.id) })
+  if (!warranty) return reply.status(404).send('❌ Không tìm thấy phiếu bảo hành')
+  if (!canActOnRecord(req, warranty)) return reply.status(403).send('❌ Bạn không có quyền sửa phiếu bảo hành này')
+  const [customers, products] = await Promise.all([
+    fastify.mongo.db.collection('customers').find().sort({ name: 1 }).toArray(),
+    fastify.mongo.db.collection('products').find().sort({ name: 1 }).toArray()
+  ])
+  return reply.view('warranty_edit.pug', { warranty, customers, products, user: req.user })
+})
+
+fastify.post('/warranties/edit/:id', { preHandler: staff }, async (req, reply) => {
+  const { customerId, productId, purchaseDate, warrantyMonths, status, note } = req.body
+  const existing = await fastify.mongo.db.collection('warranties').findOne({ _id: new ObjectId(req.params.id) })
+  if (!existing) return reply.status(404).send('❌ Không tìm thấy phiếu bảo hành')
+  if (!canActOnRecord(req, existing)) return reply.status(403).send('❌ Bạn không có quyền sửa phiếu bảo hành này')
+  const product = productId ? await fastify.mongo.db.collection('products').findOne({ _id: normalizeObjectId(productId) }) : null
+  if (existing.orderId && product) {
+    const duplicate = await fastify.mongo.db.collection('warranties').findOne({
+      orderId: existing.orderId,
+      productId: product._id,
+      _id: { $ne: existing._id }
+    })
+    if (duplicate) {
+      return reply.status(400).send(`❌ Sản phẩm "${product.name}" trong đơn hàng này đã có phiếu bảo hành ${duplicate.warrantyCode}, không thể trùng`)
+    }
+  }
+  const months = Number(warrantyMonths) || 12
+  const purchase = purchaseDate || ''
+  const newStatus = status || 'Còn bảo hành'
+  const owner = await resolveOwner(fastify.mongo.db, customerId, req.user.id)
+
+  await fastify.mongo.db.collection('warranties').updateOne(
+    { _id: new ObjectId(req.params.id) },
+    {
+      $set: {
+        customerId: normalizeObjectId(customerId),
+        productId: product ? product._id : null,
+        productName: product ? product.name : 'Chưa rõ sản phẩm',
+        purchaseDate: purchase,
+        warrantyMonths: months,
+        expiryDate: addMonths(purchase, months),
+        status: newStatus,
+        assignedTo: owner,
+        note: note || ''
+      }
+    }
+  )
+
+  if (existing && existing.status !== newStatus) {
+    await logActivity(fastify.mongo.db, {
+      customerId,
+      orderId: existing.orderId,
+      type: 'Bảo hành',
+      note: `Cập nhật bảo hành ${existing.warrantyCode}: ${existing.status} → ${newStatus}`,
+      userId: req.user.id
+    })
+  }
+
+  reply.redirect('/warranties')
+})
+
+fastify.get('/warranties/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  await fastify.mongo.db.collection('warranties').deleteOne({ _id: new ObjectId(req.params.id) })
+  reply.redirect('/warranties')
+})
+
+// ================= CỔNG KHÁCH HÀNG (role = 'customer') =================
+// Khách hàng chỉ XEM đơn hàng / bảo hành của CHÍNH MÌNH (lọc theo hồ sơ khách hàng gắn với tài khoản).
+// Mọi truy vấn đều lấy customerId từ DB theo tài khoản đang đăng nhập, KHÔNG nhận từ URL/form
+// => khách này không thể xem dữ liệu của khách khác.
+
+fastify.get('/my/orders', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const customer = await getMyCustomer(req)
+  const orders = customer
+    ? await fastify.mongo.db.collection('orders').find({ customerId: customer._id }).sort({ createdAt: -1 }).toArray()
+    : []
+
+  return reply.view('my_orders.pug', {
+    user: req.user,
+    customer,
+    orders: orders.map(orderForCustomerView)
+  })
+})
+
+fastify.get('/my/warranties', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const customer = await getMyCustomer(req)
+  const warranties = customer
+    ? await fastify.mongo.db.collection('warranties').find({ customerId: customer._id }).sort({ purchaseDate: -1 }).toArray()
+    : []
+
+  return reply.view('my_warranties.pug', {
+    user: req.user,
+    customer,
+    warranties: warranties.map(warrantyForCustomerView)
+  })
+})
+
+// ================= KHIẾU NẠI KHÁCH HÀNG (COMPLAINTS) =================
+// Luồng trạng thái:
+//   Mới gửi -> Đã xác nhận -> Đang xử lý -> Hoàn thành -> Đã đóng
+// - KHÁCH HÀNG: tạo khiếu nại; chỉ SỬA / XÓA được khi trạng thái còn "Mới gửi"
+//   (nhân viên chưa xác nhận). Điều kiện nằm ngay trong câu lệnh update/delete nên
+//   nếu nhân viên vừa bấm xác nhận thì thao tác của khách sẽ bị từ chối (không bị lệch).
+// - NHÂN VIÊN PHỤ TRÁCH / ADMIN: nhận (khiếu nại mới hiện sẵn trong danh sách) -> xem ->
+//   xác nhận -> xử lý -> hoàn thành -> đóng. Mỗi bước chỉ đi đúng thứ tự, ghi vào
+//   "history" của khiếu nại và vào lịch sử chăm sóc (activities) của khách hàng.
+
+const COMPLAINT_STATUS = {
+  NEW: 'Mới gửi',
+  ACK: 'Đã xác nhận',
+  PROCESSING: 'Đang xử lý',
+  DONE: 'Hoàn thành',
+  CLOSED: 'Đã đóng'
+}
+const COMPLAINT_STATUS_LIST = Object.values(COMPLAINT_STATUS)
+const COMPLAINT_CATEGORIES = [
+  'Chất lượng sản phẩm',
+  'Bảo hành / sửa chữa',
+  'Thái độ phục vụ',
+  'Giao hàng',
+  'Thanh toán / giá',
+  'Khác'
+]
+const COMPLAINT_TITLE_MAX = 150
+const COMPLAINT_CONTENT_MAX = 2000
+const COMPLAINT_NOTE_MAX = 1000
+
+// Các bước xử lý của nhân viên: mỗi bước chỉ chạy được khi khiếu nại đang ở đúng trạng thái "from"
+const COMPLAINT_ACTIONS = {
+  confirm: { from: COMPLAINT_STATUS.NEW, to: COMPLAINT_STATUS.ACK, label: 'Xác nhận khiếu nại', requireNote: false },
+  process: { from: COMPLAINT_STATUS.ACK, to: COMPLAINT_STATUS.PROCESSING, label: 'Bắt đầu xử lý', requireNote: false },
+  complete: { from: COMPLAINT_STATUS.PROCESSING, to: COMPLAINT_STATUS.DONE, label: 'Hoàn thành xử lý', requireNote: true },
+  close: { from: COMPLAINT_STATUS.DONE, to: COMPLAINT_STATUS.CLOSED, label: 'Đóng khiếu nại', requireNote: false }
+}
+
+function formatDateTime(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('vi-VN')
+}
+
+// Nhân viên thấy khiếu nại của khách mình phụ trách + khiếu nại chưa có người phụ trách
+// (để có người nhận). Admin thấy tất cả.
+function complaintStaffFilter(req) {
+  if (req.user.role === 'admin') return {}
+  return { $or: [{ assignedTo: normalizeObjectId(req.user.id) }, { assignedTo: null }] }
+}
+
+function canStaffAccessComplaint(req, complaint) {
+  if (req.user.role === 'admin') return true
+  return !complaint.assignedTo || complaint.assignedTo.toString() === String(req.user.id)
+}
+
+function complaintView(c, orderCode) {
+  return {
+    ...c,
+    orderCode: orderCode || '',
+    createdAtText: formatDateTime(c.createdAt),
+    updatedAtText: formatDateTime(c.updatedAt),
+    history: (c.history || []).map(h => ({ ...h, atText: formatDateTime(h.at) }))
+  }
+}
+
+async function complaintsWithOrderCode(db, complaints) {
+  const orderIds = [...new Set(complaints.filter(c => c.orderId).map(c => String(c.orderId)))]
+    .map(id => new ObjectId(id))
+  const orders = orderIds.length
+    ? await db.collection('orders').find({ _id: { $in: orderIds } }, { projection: { orderCode: 1 } }).toArray()
+    : []
+  const codeById = new Map(orders.map(o => [o._id.toString(), o.orderCode]))
+  return complaints.map(c => complaintView(c, c.orderId ? codeById.get(String(c.orderId)) : ''))
+}
+
+// Đơn hàng đã xác nhận của khách (để khách chọn đơn liên quan khi khiếu nại)
+async function getComplaintOrderOptions(db, customer) {
+  const orders = await db.collection('orders')
+    .find({ customerId: customer._id, status: 'confirmed' })
+    .sort({ createdAt: -1 }).toArray()
+  return orders.map(o => ({
+    _id: o._id,
+    label: `${o.orderCode} - ${(o.items || []).map(i => `${i.productName} x${i.quantity}`).join(', ')}`
+  }))
+}
+
+// Đọc + kiểm tra dữ liệu form của khách. Trả về { data } hoặc { error, form }.
+async function parseComplaintForm(db, customer, body) {
+  const form = {
+    category: COMPLAINT_CATEGORIES.includes(body.category) ? body.category : 'Khác',
+    orderId: String(body.orderId || ''),
+    title: String(body.title || '').trim(),
+    content: String(body.content || '').trim()
+  }
+  if (!form.title) return { error: 'Vui lòng nhập tiêu đề khiếu nại!', form }
+  if (form.title.length > COMPLAINT_TITLE_MAX) return { error: `Tiêu đề tối đa ${COMPLAINT_TITLE_MAX} ký tự!`, form }
+  if (!form.content) return { error: 'Vui lòng mô tả nội dung khiếu nại!', form }
+  if (form.content.length > COMPLAINT_CONTENT_MAX) return { error: `Nội dung tối đa ${COMPLAINT_CONTENT_MAX} ký tự!`, form }
+
+  // Đơn hàng liên quan (không bắt buộc) phải là đơn của CHÍNH khách này
+  let orderId = null
+  if (form.orderId) {
+    const oid = normalizeObjectId(form.orderId)
+    const order = oid ? await db.collection('orders').findOne({ _id: oid, customerId: customer._id }) : null
+    if (!order) return { error: 'Đơn hàng được chọn không hợp lệ!', form }
+    orderId = order._id
+  }
+  return { data: { category: form.category, orderId, title: form.title, content: form.content } }
+}
+
+// ---------- PHÍA KHÁCH HÀNG ----------
+const NO_CUSTOMER_MSG = '❌ Tài khoản chưa được liên kết với hồ sơ khách hàng. Vui lòng liên hệ cửa hàng.'
+
+fastify.get('/my/complaints', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const customer = await getMyCustomer(req)
+  const complaints = customer
+    ? await db.collection('complaints').find({ customerId: customer._id }).sort({ createdAt: -1 }).toArray()
+    : []
+  return reply.view('complaints.pug', {
+    user: req.user,
+    customer,
+    complaints: await complaintsWithOrderCode(db, complaints),
+    NEW_STATUS: COMPLAINT_STATUS.NEW
+  })
+})
+
+fastify.get('/my/complaints/add', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const customer = await getMyCustomer(req)
+  if (!customer) return reply.status(404).send(NO_CUSTOMER_MSG)
+  return reply.view('complaint_form.pug', {
+    user: req.user, isEdit: false, complaint: null, error: null, form: {},
+    categories: COMPLAINT_CATEGORIES,
+    orders: await getComplaintOrderOptions(fastify.mongo.db, customer),
+    titleMax: COMPLAINT_TITLE_MAX, contentMax: COMPLAINT_CONTENT_MAX
+  })
+})
+
+fastify.post('/my/complaints/add', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const customer = await getMyCustomer(req)
+  if (!customer) return reply.status(404).send(NO_CUSTOMER_MSG)
+
+  const parsed = await parseComplaintForm(db, customer, req.body || {})
+  if (parsed.error) {
+    return reply.view('complaint_form.pug', {
+      user: req.user, isEdit: false, complaint: null, error: parsed.error, form: parsed.form,
+      categories: COMPLAINT_CATEGORIES,
+      orders: await getComplaintOrderOptions(db, customer),
+      titleMax: COMPLAINT_TITLE_MAX, contentMax: COMPLAINT_CONTENT_MAX
+    })
+  }
+
+  const now = new Date()
+  const complaintCode = `KN-${Date.now().toString().slice(-6)}`
+  const result = await db.collection('complaints').insertOne({
+    complaintCode,
+    customerId: customer._id,
+    ...parsed.data,
+    status: COMPLAINT_STATUS.NEW,
+    // Giao cho nhân viên đang phụ trách khách; chưa có thì để trống cho nhân viên nào nhận cũng được
+    assignedTo: customer.assignedTo || null,
+    history: [{ status: COMPLAINT_STATUS.NEW, note: 'Khách hàng gửi khiếu nại', byName: customer.name, byRole: 'customer', at: now }],
+    createdAt: now,
+    updatedAt: now
+  })
+
+  await logActivity(db, {
+    customerId: customer._id,
+    orderId: parsed.data.orderId,
+    type: 'Khiếu nại',
+    note: `Khách hàng gửi khiếu nại ${complaintCode}: ${parsed.data.title}`,
+    userId: req.user.id
+  })
+  reply.redirect(`/my/complaints/${result.insertedId}`)
+})
+
+// Lấy khiếu nại của CHÍNH khách đang đăng nhập (customerId lấy từ DB, không nhận từ URL/form)
+async function findMyComplaint(req) {
+  const customer = await getMyCustomer(req)
+  const id = normalizeObjectId(req.params.id)
+  if (!customer || !id) return { customer, complaint: null }
+  const complaint = await fastify.mongo.db.collection('complaints').findOne({ _id: id, customerId: customer._id })
+  return { customer, complaint }
+}
+
+fastify.get('/my/complaints/edit/:id', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const { customer, complaint } = await findMyComplaint(req)
+  if (!complaint) return reply.status(404).send('❌ Không tìm thấy khiếu nại')
+  if (complaint.status !== COMPLAINT_STATUS.NEW) {
+    return reply.status(403).send('❌ Nhân viên đã xác nhận khiếu nại này nên không thể sửa nữa')
+  }
+  return reply.view('complaint_form.pug', {
+    user: req.user, isEdit: true, complaint, error: null,
+    form: {
+      category: complaint.category, orderId: complaint.orderId ? String(complaint.orderId) : '',
+      title: complaint.title, content: complaint.content
+    },
+    categories: COMPLAINT_CATEGORIES,
+    orders: await getComplaintOrderOptions(fastify.mongo.db, customer),
+    titleMax: COMPLAINT_TITLE_MAX, contentMax: COMPLAINT_CONTENT_MAX
+  })
+})
+
+fastify.post('/my/complaints/edit/:id', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const { customer, complaint } = await findMyComplaint(req)
+  if (!complaint) return reply.status(404).send('❌ Không tìm thấy khiếu nại')
+
+  const parsed = await parseComplaintForm(db, customer, req.body || {})
+  if (parsed.error) {
+    return reply.view('complaint_form.pug', {
+      user: req.user, isEdit: true, complaint, error: parsed.error, form: parsed.form,
+      categories: COMPLAINT_CATEGORIES,
+      orders: await getComplaintOrderOptions(db, customer),
+      titleMax: COMPLAINT_TITLE_MAX, contentMax: COMPLAINT_CONTENT_MAX
+    })
+  }
+
+  // Điều kiện status = "Mới gửi" nằm trong chính câu lệnh update (chống lệch khi NV vừa xác nhận)
+  const now = new Date()
+  const result = await db.collection('complaints').updateOne(
+    { _id: complaint._id, customerId: customer._id, status: COMPLAINT_STATUS.NEW },
+    {
+      $set: { ...parsed.data, updatedAt: now },
+      $push: { history: { status: COMPLAINT_STATUS.NEW, note: 'Khách hàng chỉnh sửa nội dung khiếu nại', byName: customer.name, byRole: 'customer', at: now } }
+    }
+  )
+  if (result.matchedCount === 0) {
+    return reply.status(409).send('❌ Nhân viên vừa xác nhận khiếu nại này nên không thể sửa nữa')
+  }
+
+  await logActivity(db, {
+    customerId: customer._id, orderId: parsed.data.orderId, type: 'Khiếu nại',
+    note: `Khách hàng sửa khiếu nại ${complaint.complaintCode}`, userId: req.user.id
+  })
+  reply.redirect(`/my/complaints/${complaint._id}`)
+})
+
+fastify.post('/my/complaints/delete/:id', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const { customer, complaint } = await findMyComplaint(req)
+  if (!complaint) return reply.status(404).send('❌ Không tìm thấy khiếu nại')
+
+  const result = await db.collection('complaints').deleteOne({
+    _id: complaint._id, customerId: customer._id, status: COMPLAINT_STATUS.NEW
+  })
+  if (result.deletedCount === 0) {
+    return reply.status(409).send('❌ Nhân viên đã xác nhận khiếu nại này nên không thể xóa')
+  }
+
+  await logActivity(db, {
+    customerId: customer._id, orderId: complaint.orderId, type: 'Khiếu nại',
+    note: `Khách hàng đã xóa khiếu nại ${complaint.complaintCode} (${complaint.title})`, userId: req.user.id
+  })
+  reply.redirect('/my/complaints')
+})
+
+fastify.get('/my/complaints/:id', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const { customer, complaint } = await findMyComplaint(req)
+  if (!complaint) return reply.status(404).send('❌ Không tìm thấy khiếu nại')
+  const [view] = await complaintsWithOrderCode(fastify.mongo.db, [complaint])
+  return reply.view('complaint_detail.pug', {
+    user: req.user, customer, complaint: view, canModify: complaint.status === COMPLAINT_STATUS.NEW
+  })
+})
+
+// ---------- PHÍA NHÂN VIÊN PHỤ TRÁCH / ADMIN ----------
+fastify.get('/complaints', { preHandler: staff }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const scope = complaintStaffFilter(req)
+  const statusFilter = COMPLAINT_STATUS_LIST.includes(req.query.status) ? req.query.status : ''
+  const filter = { ...scope }
+  if (statusFilter) filter.status = statusFilter
+
+  const [complaints, countRows] = await Promise.all([
+    db.collection('complaints').find(filter).sort({ createdAt: -1 }).toArray(),
+    db.collection('complaints').aggregate([
+      { $match: scope },
+      { $group: { _id: '$status', n: { $sum: 1 } } }
+    ]).toArray()
+  ])
+  const counts = Object.fromEntries(countRows.map(r => [r._id, r.n]))
+
+  const customerIds = complaints.map(c => c.customerId).filter(Boolean)
+  const customers = customerIds.length
+    ? await db.collection('customers').find({ _id: { $in: customerIds } }).toArray()
+    : []
+  const customerNameById = new Map(customers.map(c => [c._id.toString(), c.name]))
+
+  const view = (await complaintsWithOrderCode(db, complaints)).map(c => ({
+    ...c,
+    customerName: c.customerId ? (customerNameById.get(c.customerId.toString()) || 'Chưa rõ') : 'Chưa rõ'
+  }))
+
+  return reply.view('complaints.pug', {
+    user: req.user, complaints: view, statusFilter, counts, statuses: COMPLAINT_STATUS_LIST
+  })
+})
+
+fastify.get('/complaints/detail/:id', { preHandler: staff }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const id = normalizeObjectId(req.params.id)
+  const complaint = id ? await db.collection('complaints').findOne({ _id: id }) : null
+  if (!complaint) return reply.status(404).send('❌ Không tìm thấy khiếu nại')
+  if (!canStaffAccessComplaint(req, complaint)) {
+    return reply.status(403).send('❌ Bạn không có quyền xem khiếu nại này')
+  }
+
+  const [customer, assignedStaff] = await Promise.all([
+    complaint.customerId ? db.collection('customers').findOne({ _id: complaint.customerId }) : null,
+    complaint.assignedTo ? db.collection('users').findOne({ _id: complaint.assignedTo }) : null
+  ])
+  const [view] = await complaintsWithOrderCode(db, [complaint])
+
+  // Bước tiếp theo hợp lệ ứng với trạng thái hiện tại (null khi đã đóng)
+  const entry = Object.entries(COMPLAINT_ACTIONS).find(([, rule]) => rule.from === complaint.status)
+  const nextAction = entry ? { key: entry[0], ...entry[1] } : null
+
+  return reply.view('complaint_detail.pug', {
+    user: req.user,
+    complaint: view,
+    customer,
+    assignedStaffName: assignedStaff ? (assignedStaff.name || assignedStaff.username) : 'Chưa phân công',
+    nextAction,
+    noteMax: COMPLAINT_NOTE_MAX
+  })
+})
+
+// Một route xử lý cả 4 bước: confirm | process | complete | close
+fastify.post('/complaints/:id/:action', { preHandler: staff }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const rule = COMPLAINT_ACTIONS[req.params.action]
+  if (!rule) return reply.status(404).send('❌ Thao tác không hợp lệ')
+
+  const id = normalizeObjectId(req.params.id)
+  const complaint = id ? await db.collection('complaints').findOne({ _id: id }) : null
+  if (!complaint) return reply.status(404).send('❌ Không tìm thấy khiếu nại')
+  if (!canStaffAccessComplaint(req, complaint)) {
+    return reply.status(403).send('❌ Bạn không có quyền xử lý khiếu nại này')
+  }
+
+  const note = String((req.body && req.body.note) || '').trim().slice(0, COMPLAINT_NOTE_MAX)
+  if (rule.requireNote && !note) {
+    return reply.status(400).send('❌ Vui lòng nhập kết quả xử lý trước khi hoàn thành khiếu nại')
+  }
+
+  const now = new Date()
+  const set = { status: rule.to, updatedAt: now }
+  if (req.params.action === 'confirm') {
+    set.acknowledgedAt = now
+    set.acknowledgedBy = normalizeObjectId(req.user.id)
+    // Khiếu nại chưa có người phụ trách -> người xác nhận nhận luôn
+    if (!complaint.assignedTo) set.assignedTo = normalizeObjectId(req.user.id)
+  }
+  if (req.params.action === 'complete') { set.resolution = note; set.resolvedAt = now }
+  if (req.params.action === 'close') set.closedAt = now
+
+  // Chỉ chuyển trạng thái nếu khiếu nại vẫn đang ở đúng bước trước đó
+  // (2 người cùng bấm / khách vừa xóa khiếu nại thì không bị ghi đè).
+  const result = await db.collection('complaints').updateOne(
+    { _id: complaint._id, status: rule.from },
+    {
+      $set: set,
+      $push: { history: { status: rule.to, note, byName: req.user.name || req.user.username, byRole: req.user.role, at: now } }
+    }
+  )
+  if (result.matchedCount === 0) {
+    return reply.status(409).send('❌ Khiếu nại vừa được cập nhật bởi người khác hoặc khách hàng đã xóa. Vui lòng tải lại trang.')
+  }
+
+  await logActivity(db, {
+    customerId: complaint.customerId, orderId: complaint.orderId, type: 'Khiếu nại',
+    note: `Khiếu nại ${complaint.complaintCode}: ${complaint.status} → ${rule.to}${note ? ` (${note})` : ''}`,
+    userId: req.user.id
+  })
+  reply.redirect(`/complaints/detail/${complaint._id}`)
+})
+
+// ================= THÔNG BÁO TỚI KHÁCH HÀNG (ANNOUNCEMENTS) =================
+// Admin / Nhân viên soạn thông báo (chương trình tri ân, khuyến mãi, sản phẩm mới...) và gửi
+// tới khách hàng. Dữ liệu gồm 2 collection:
+//   - announcements:           nội dung thông báo (1 bản ghi / lần gửi)
+//   - announcement_recipients: mỗi khách nhận 1 bản ghi (readAt = null khi chưa đọc), nhờ vậy
+//                              khách thấy "chưa đọc" và người gửi thống kê được số khách đã đọc.
+// Phạm vi gửi (do SERVER ép theo vai trò, không tin dữ liệu từ form):
+//   - Admin:     toàn bộ khách hàng.
+//   - Nhân viên: chỉ khách hàng do mình phụ trách.
+// Chỉ khách hàng ĐÃ CÓ TÀI KHOẢN đăng nhập (customers.userId) mới nhận được thông báo.
+
+const ANNOUNCEMENT_TYPES = ['Chương trình tri ân', 'Khuyến mãi', 'Sản phẩm mới', 'Thông báo chung']
+const ANNOUNCEMENT_AUDIENCES = ['all', 'birthday'] // all = toàn bộ trong phạm vi quyền | birthday = sinh nhật tháng này
+const ANNOUNCEMENT_TITLE_MAX = 150
+const ANNOUNCEMENT_CONTENT_MAX = 3000
+
+async function ensureAnnouncementIndexes() {
+  try {
+    const col = fastify.mongo.db.collection('announcement_recipients')
+    // Mỗi khách chỉ nhận 1 bản ghi cho mỗi thông báo
+    await col.createIndex({ announcementId: 1, customerId: 1 }, { unique: true })
+    await col.createIndex({ customerId: 1, createdAt: -1 })
   } catch (err) {
     fastify.log.error(err)
-    return reply.status(500).send('❌ Lỗi khi ban hành quyết định!')
   }
-})
+}
 
-// API hiển thị form sửa quyết định và xử lý POST cập nhật quyết định vào DB
-fastify.get('/decisions/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  // 1. Lấy thông tin quyết định theo id để hiển thị lên form sửa
-  const decision = await fastify.mongo.db.collection('decisions').findOne({ _id: new ObjectId(req.params.id) })
-  // 2. chạy hàm điều kiện kiểm tra nếu không tìm thấy quyết định thì trả về lỗi 404
-  if (!decision) {
-    return reply.status(404).send('❌ Không tìm thấy quyết định')
-  }
-  // 3.nếu có quyết định: Lấy danh sách nhân viên từ DB để hiển thị trong thanh cuộn chọn nhân viên khi sửa quyết định
-  const employees = await fastify.mongo.db.collection('employees')
-    .find({ employeeCode: { $exists: true, $ne: '' } })
-    .sort({ name: 1 })
-    .toArray()
-  // 4. trả về giao diện form sửa quyết định với dữ liệu quyết định, danh sách nhân viên và thông tin người dùng hiện tại, kèm thông báo lỗi nếu có
-  return reply.view('edit_decision.pug', { decision, employees, user: req.user, error: req.query.error || null })
-})
-
-fastify.post('/decisions/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+// Số thông báo chưa đọc của khách (hiển thị trên menu bên trái, nạp trong hook reply.view)
+async function getUnreadAnnouncementCount(userId) {
   try {
-    // 1. nhận dữ liệu từ form gửi lên
-    const data = await req.file()
-    // 2. Kiểm tra dữ liệu form gửi lên có hợp lệ không
-    if (!data) {
-      return reply.status(400).send('❌ Không nhận được dữ liệu form gửi lên!')
-    }
+    const db = fastify.mongo.db
+    const id = normalizeObjectId(userId)
+    if (!id) return 0
+    const customer = await db.collection('customers').findOne({ userId: id }, { projection: { _id: 1 } })
+    if (!customer) return 0
+    return await db.collection('announcement_recipients').countDocuments({ customerId: customer._id, readAt: null })
+  } catch (err) {
+    fastify.log.error(err)
+    return 0 // lỗi truy vấn không được làm hỏng cả trang
+  }
+}
 
-    // 3. Lấy dữ liệu từ quyết định cũ để sửa 
-    const oldDecision = await fastify.mongo.db.collection('decisions').findOne({ _id: new ObjectId(req.params.id) })
-    let attachmentUrl = oldDecision ? oldDecision.attachmentUrl : ''
-    let attachmentName = oldDecision ? oldDecision.attachmentName : ''
+function announcementAudienceText(req, audience) {
+  const scope = req.user.role === 'admin' ? 'Tất cả khách hàng' : 'Khách hàng tôi phụ trách'
+  return audience === 'birthday' ? `${scope} có sinh nhật tháng ${new Date().getMonth() + 1}` : scope
+}
 
-    // Nếu admin tải file mới lên, lưu file mới và ghi đè thông tin đính kèm
-    const newAttachment = await saveDecisionAttachment(data)
-    if (newAttachment) {
-      attachmentUrl = newAttachment.attachmentUrl
-      attachmentName = newAttachment.attachmentName
-    }
+function announcementFormData(req, form, error) {
+  return {
+    user: req.user,
+    error: error || null,
+    form: form || {},
+    types: ANNOUNCEMENT_TYPES,
+    audienceOptions: [
+      { value: 'all', label: announcementAudienceText(req, 'all') },
+      { value: 'birthday', label: announcementAudienceText(req, 'birthday') }
+    ],
+    titleMax: ANNOUNCEMENT_TITLE_MAX,
+    contentMax: ANNOUNCEMENT_CONTENT_MAX,
+    minDate: toLocalDateString(new Date())
+  }
+}
 
-    const title = String(data.fields?.title?.value || '').trim()
-    const content = String(data.fields?.content?.value || '').trim()
-    const pinned = Boolean(data.fields?.pinned?.value)
-    const recipientType = String(data.fields?.recipientType?.value || 'specific').trim()
+function announcementView(a) {
+  return {
+    ...a,
+    createdAtText: formatDateTime(a.createdAt),
+    validUntilText: a.validUntil ? formatDate(a.validUntil) : '',
+    expired: !!a.validUntil && a.validUntil < toLocalDateString(new Date())
+  }
+}
 
-    //4. Kiểm tra dữ liệu nhập vào
-    if (!title || !content) {
-      return reply.redirect(`/decisions/edit/${req.params.id}?error=` + encodeURIComponent('Vui lòng nhập đầy đủ tiêu đề và nội dung!'))
-    }
+// Admin xem/xóa mọi thông báo; nhân viên chỉ thao tác trên thông báo do chính mình gửi
+function canManageAnnouncement(req, announcement) {
+  if (req.user.role === 'admin') return true
+  return !!announcement.createdBy && announcement.createdBy.toString() === String(req.user.id)
+}
 
-    //5. Xử lý danh sách nhân viên nhận
-    let recipients = []
-    if (recipientType === 'specific') {
-      const rawRecipients = data.fields?.recipients
-      if (rawRecipients) {
-        const recipientValues = Array.isArray(rawRecipients)
-          ? rawRecipients.map(r => r.value)
-          : [rawRecipients.value]
+// ---------- PHÍA NHÂN VIÊN / ADMIN ----------
+fastify.get('/announcements', { preHandler: staff }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const filter = req.user.role === 'admin' ? {} : { createdBy: normalizeObjectId(req.user.id) }
+  const announcements = await db.collection('announcements').find(filter).sort({ createdAt: -1 }).toArray()
 
-        recipients = recipientValues
-          .filter(v => v && ObjectId.isValid(v))
-          .map(v => new ObjectId(v))
-      }
+  // Thống kê số khách đã nhận / đã đọc cho từng thông báo
+  const statRows = announcements.length
+    ? await db.collection('announcement_recipients').aggregate([
+        { $match: { announcementId: { $in: announcements.map(a => a._id) } } },
+        { $group: { _id: '$announcementId', total: { $sum: 1 }, read: { $sum: { $cond: [{ $ne: ['$readAt', null] }, 1, 0] } } } }
+      ]).toArray()
+    : []
+  const statById = new Map(statRows.map(r => [r._id.toString(), r]))
 
-      if (recipients.length === 0) {
-        return reply.redirect(`/decisions/edit/${req.params.id}?error=` + encodeURIComponent('Vui lòng chọn ít nhất 1 nhân viên nhận quyết định!'))
-      }
-    }
-    
-    //6. Cập nhật quyết định trong DB
-    await fastify.mongo.db.collection('decisions').updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { title, content, pinned, recipients, attachmentUrl, attachmentName, updatedAt: new Date() } }
+  return reply.view('announcements.pug', {
+    user: req.user,
+    announcements: announcements.map(a => {
+      const stat = statById.get(a._id.toString())
+      return { ...announcementView(a), total: stat ? stat.total : 0, readCount: stat ? stat.read : 0 }
+    })
+  })
+})
+
+fastify.get('/announcements/add', { preHandler: staff }, async (req, reply) => {
+  return reply.view('announcement_form.pug', announcementFormData(req, { type: ANNOUNCEMENT_TYPES[0], audience: 'all' }))
+})
+
+fastify.post('/announcements/add', { preHandler: staff }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const body = req.body || {}
+  const form = {
+    type: ANNOUNCEMENT_TYPES.includes(body.type) ? body.type : ANNOUNCEMENT_TYPES[0],
+    audience: ANNOUNCEMENT_AUDIENCES.includes(body.audience) ? body.audience : 'all',
+    title: String(body.title || '').trim(),
+    content: String(body.content || '').trim(),
+    validUntil: String(body.validUntil || '').trim()
+  }
+  const fail = message => reply.view('announcement_form.pug', announcementFormData(req, form, message))
+
+  if (!form.title) return fail('Vui lòng nhập tiêu đề thông báo!')
+  if (form.title.length > ANNOUNCEMENT_TITLE_MAX) return fail(`Tiêu đề tối đa ${ANNOUNCEMENT_TITLE_MAX} ký tự!`)
+  if (!form.content) return fail('Vui lòng nhập nội dung thông báo!')
+  if (form.content.length > ANNOUNCEMENT_CONTENT_MAX) return fail(`Nội dung tối đa ${ANNOUNCEMENT_CONTENT_MAX} ký tự!`)
+  if (form.validUntil) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.validUntil)) return fail('Hạn áp dụng không hợp lệ!')
+    if (form.validUntil < toLocalDateString(new Date())) return fail('Hạn áp dụng không được nằm trong quá khứ!')
+  }
+
+  // Xác định khách nhận: phạm vi theo vai trò (admin: tất cả, nhân viên: khách mình phụ trách)
+  const scopedCustomers = await db.collection('customers').find({ ...scopeFilter(req, 'assignedTo') }).toArray()
+  const targets = form.audience === 'birthday'
+    ? scopedCustomers.filter(c => isBirthdayThisMonth(c.birthDate))
+    : scopedCustomers
+  const receivers = targets.filter(c => c.userId)
+  const skippedNoAccount = targets.length - receivers.length
+
+  if (receivers.length === 0) {
+    return fail(targets.length === 0
+      ? 'Không có khách hàng nào thuộc đối tượng nhận này!'
+      : `Có ${targets.length} khách hàng thuộc đối tượng này nhưng chưa ai có tài khoản đăng nhập nên chưa thể nhận thông báo.`)
+  }
+
+  const now = new Date()
+  const { insertedId } = await db.collection('announcements').insertOne({
+    title: form.title,
+    content: form.content,
+    type: form.type,
+    audience: form.audience,
+    audienceText: announcementAudienceText(req, form.audience),
+    validUntil: form.validUntil || '',
+    recipientCount: receivers.length,
+    skippedNoAccount,
+    createdBy: normalizeObjectId(req.user.id),
+    createdByName: req.user.name || req.user.username,
+    createdAt: now
+  })
+
+  try {
+    await db.collection('announcement_recipients').insertMany(
+      receivers.map(c => ({ announcementId: insertedId, customerId: c._id, readAt: null, createdAt: now }))
     )
-    //7. Chuyển hướng về danh sách quyết định sau khi cập nhật thành công
-    return reply.redirect('/decisions')
   } catch (err) {
-    fastify.log.error(err)
-    return reply.status(500).send('❌ Lỗi khi cập nhật quyết định!')
+    // Gửi lỗi giữa chừng -> gỡ thông báo để không còn bản ghi "ma"
+    await db.collection('announcement_recipients').deleteMany({ announcementId: insertedId }).catch(() => {})
+    await db.collection('announcements').deleteOne({ _id: insertedId }).catch(() => {})
+    throw err
   }
+
+  // Để lại dấu vết trên hồ sơ từng khách hàng (giống các mốc chăm sóc khác của CRM)
+  await db.collection('activities').insertMany(receivers.map(c => ({
+    customerId: c._id,
+    orderId: null,
+    type: 'Thông báo',
+    note: `Đã gửi thông báo "${form.title}" (${form.type})`,
+    createdBy: normalizeObjectId(req.user.id),
+    createdAt: now
+  })))
+
+  reply.redirect(`/announcements/detail/${insertedId}`)
 })
 
-// Xóa quyết định - chỉ admin
-fastify.get('/decisions/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  try {
-    //1. Lấy thông tin quyết định theo id để kiểm tra và xóa file đính kèm nếu có
-    const decision = await fastify.mongo.db.collection('decisions').findOne({ _id: new ObjectId(req.params.id) })
-    
-    //kiểm tra và xóa file đính kèm trên đĩa nếu có thì xóa,không có thì bỏ qua
-    if (decision && decision.attachmentUrl) {
-      const filePath = path.join(__dirname, decision.attachmentUrl.replace(/^\/public\//, 'public/'))
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath)
-      }
+fastify.get('/announcements/detail/:id', { preHandler: staff }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const id = normalizeObjectId(req.params.id)
+  const announcement = id ? await db.collection('announcements').findOne({ _id: id }) : null
+  if (!announcement) return reply.status(404).send('❌ Không tìm thấy thông báo')
+  if (!canManageAnnouncement(req, announcement)) {
+    return reply.status(403).send('❌ Bạn chỉ xem được thông báo do chính mình gửi')
+  }
+
+  const recipients = await db.collection('announcement_recipients').find({ announcementId: id }).toArray()
+  const customers = recipients.length
+    ? await db.collection('customers').find({ _id: { $in: recipients.map(r => r.customerId) } }).toArray()
+    : []
+  const customerById = new Map(customers.map(c => [c._id.toString(), c]))
+
+  const recipientsView = recipients.map(r => {
+    const c = customerById.get(r.customerId.toString())
+    return {
+      customerId: r.customerId,
+      customerName: c ? c.name : 'Khách hàng đã bị xóa',
+      customerPhone: c ? c.phone : '',
+      isRead: !!r.readAt,
+      readAtText: formatDateTime(r.readAt)
     }
-    // 2. Xóa quyết định khỏi DB
-    await fastify.mongo.db.collection('decisions').deleteOne({ _id: new ObjectId(req.params.id) })
-    // 3. Chuyển hướng về danh sách quyết định sau khi xóa thành công
-    return reply.redirect('/decisions')
-  } catch (err) {
-    fastify.log.error(err)
-    return reply.status(500).send('❌ Lỗi khi xóa quyết định!')
-  }
+  }).sort((a, b) => Number(a.isRead) - Number(b.isRead) || a.customerName.localeCompare(b.customerName, 'vi'))
+
+  return reply.view('announcement_detail.pug', {
+    user: req.user,
+    announcement: announcementView(announcement),
+    recipients: recipientsView,
+    readCount: recipientsView.filter(r => r.isRead).length
+  })
 })
 
+// Thu hồi (xóa) thông báo: khách sẽ không còn thấy thông báo này nữa
+fastify.post('/announcements/delete/:id', { preHandler: staff }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const id = normalizeObjectId(req.params.id)
+  const announcement = id ? await db.collection('announcements').findOne({ _id: id }) : null
+  if (!announcement) return reply.status(404).send('❌ Không tìm thấy thông báo')
+  if (!canManageAnnouncement(req, announcement)) {
+    return reply.status(403).send('❌ Bạn chỉ xóa được thông báo do chính mình gửi')
+  }
 
-// ================= THÔNG TIN TÀI KHOẢN (CẬP NHẬT) =================
+  await db.collection('announcement_recipients').deleteMany({ announcementId: id })
+  await db.collection('announcements').deleteOne({ _id: id })
+  reply.redirect('/announcements')
+})
+
+// ---------- PHÍA KHÁCH HÀNG ----------
+fastify.get('/my/announcements', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const customer = await getMyCustomer(req)
+  const recipients = customer
+    ? await db.collection('announcement_recipients').find({ customerId: customer._id }).sort({ createdAt: -1 }).limit(100).toArray()
+    : []
+  const announcements = recipients.length
+    ? await db.collection('announcements').find({ _id: { $in: recipients.map(r => r.announcementId) } }).toArray()
+    : []
+  const announcementById = new Map(announcements.map(a => [a._id.toString(), a]))
+
+  const items = recipients
+    .map(r => {
+      const a = announcementById.get(r.announcementId.toString())
+      return a ? { ...announcementView(a), isRead: !!r.readAt } : null
+    })
+    .filter(Boolean)
+
+  return reply.view('announcements.pug', { user: req.user, customer, announcements: items })
+})
+
+// Mở thông báo = đánh dấu đã đọc. Chỉ xem được thông báo ĐÃ GỬI CHO CHÍNH MÌNH (kiểm tra qua bản ghi recipient).
+fastify.get('/my/announcements/:id', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const customer = await getMyCustomer(req)
+  const id = normalizeObjectId(req.params.id)
+  if (!customer || !id) return reply.status(404).send('❌ Không tìm thấy thông báo')
+
+  const recipient = await db.collection('announcement_recipients').findOne({ announcementId: id, customerId: customer._id })
+  const announcement = recipient ? await db.collection('announcements').findOne({ _id: id }) : null
+  if (!announcement) return reply.status(404).send('❌ Không tìm thấy thông báo')
+
+  if (!recipient.readAt) {
+    await db.collection('announcement_recipients').updateOne(
+      { _id: recipient._id, readAt: null },
+      { $set: { readAt: new Date() } }
+    )
+  }
+
+  // Cập nhật lại số chưa đọc trên menu: trang này tự tính lại sau khi đã đánh dấu đọc
+  return reply.view('announcement_detail.pug', {
+    user: req.user,
+    announcement: announcementView(announcement),
+    unreadAnnouncementCount: await getUnreadAnnouncementCount(req.user.id)
+  })
+})
+
+// ================= THÔNG TIN TÀI KHOẢN (PROFILE) =================
 fastify.get('/profile', { preHandler: [auth] }, async (req, reply) => {
-  try {
-    // Lấy thông tin chi tiết nhân viên từ bảng employees
-    const emp = await fastify.mongo.db.collection('employees').findOne({
-      userId: new ObjectId(req.user.id)
-    }) || {};
+  const account = await fastify.mongo.db.collection('users').findOne({ _id: new ObjectId(req.user.id) })
 
-    // Lấy thông tin tài khoản (có mật khẩu)
-    const account = await fastify.mongo.db.collection('users').findOne({
-      _id: new ObjectId(req.user.id)
-    });
-
-    return reply.view('profile.pug', {
-      user: req.user,
-      account: account, // Truyền thêm dữ liệu tài khoản
-      emp: emp
-    });
-  } catch (err) {
-    fastify.log.error(err);
-    return reply.status(500).send('❌ Lỗi tải thông tin cá nhân!');
+  // Khách hàng: hiển thị hồ sơ khách hàng + số đơn / số phiếu bảo hành của mình
+  if (req.user.role === 'customer') {
+    const customer = await getMyCustomer(req)
+    const [myOrderCount, myWarrantyCount] = customer
+      ? await Promise.all([
+          fastify.mongo.db.collection('orders').countDocuments({ customerId: customer._id }),
+          fastify.mongo.db.collection('warranties').countDocuments({ customerId: customer._id })
+        ])
+      : [0, 0]
+    return reply.view('profile.pug', { user: req.user, account, customer, myOrderCount, myWarrantyCount })
   }
-});
+
+  const myCustomerCount = await fastify.mongo.db.collection('customers').countDocuments({ assignedTo: new ObjectId(req.user.id) })
+  const myOrderCount = await fastify.mongo.db.collection('orders').countDocuments({ assignedTo: new ObjectId(req.user.id), status: 'open' })
+  return reply.view('profile.pug', { user: req.user, account, myCustomerCount, myOrderCount })
+})
+
+// Khách hàng tự cập nhật thông tin liên hệ của mình
+fastify.get('/profile/edit', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const customer = await getMyCustomer(req)
+  if (!customer) {
+    return reply.status(404).send('❌ Tài khoản chưa được liên kết với hồ sơ khách hàng. Vui lòng liên hệ cửa hàng.')
+  }
+  return reply.view('profile_edit.pug', { user: req.user, customer, error: null })
+})
+
+fastify.post('/profile/edit', { preHandler: [auth, customerOnly] }, async (req, reply) => {
+  const customer = await getMyCustomer(req)
+  if (!customer) {
+    return reply.status(404).send('❌ Tài khoản chưa được liên kết với hồ sơ khách hàng. Vui lòng liên hệ cửa hàng.')
+  }
+
+  const body = req.body || {}
+  const name = String(body.name || '').trim()
+  const phone = String(body.phone || '').trim()
+  const email = String(body.email || '').trim()
+  const address = String(body.address || '').trim()
+  const birthDate = String(body.birthDate || '').trim()
+
+  if (!name) {
+    return reply.view('profile_edit.pug', {
+      user: req.user,
+      customer: { ...customer, name, phone, email, address, birthDate },
+      error: 'Họ và tên không được để trống!'
+    })
+  }
+
+  // Khách hàng chỉ sửa được thông tin liên hệ; mã KH, người phụ trách, ghi chú nội bộ do cửa hàng quản lý
+  await fastify.mongo.db.collection('customers').updateOne(
+    { _id: customer._id },
+    { $set: { name, phone, email, address, birthDate } }
+  )
+  await syncCustomerBirthdayReminder(customer._id)
+  await fastify.mongo.db.collection('users').updateOne(
+    { _id: normalizeObjectId(req.user.id) },
+    { $set: { name, phone } }
+  )
+
+  // Cấp lại token để tên hiển thị trên thanh trên cùng cập nhật ngay
+  const token = fastify.jwt.sign({
+    id: req.user.id,
+    username: req.user.username,
+    role: req.user.role,
+    name
+  })
+
+  reply.setCookie('token', token, {
+    path: '/',
+    httpOnly: true,
+    maxAge: 3600 * 24
+  }).redirect('/profile')
+})
 
 // ================= ĐỔI MẬT KHẨU =================
-
-// Hiển thị form đổi mật khẩu
 fastify.get('/change-password', { preHandler: [auth] }, async (req, reply) => {
-  return reply.view('change_password.pug', {
-    user: req.user,
-    error: null,
-    success: null
-  })
+  return reply.view('change_password.pug', { user: req.user, error: null, success: null })
 })
 
-// Xử lý đổi mật khẩu
 fastify.post('/change-password', { preHandler: [auth] }, async (req, reply) => {
   try {
     const { currentPassword, newPassword, confirmPassword } = req.body
 
-    // Kiểm tra nhập đủ
     if (!currentPassword || !newPassword || !confirmPassword) {
-      return reply.view('change_password.pug', {
-        user: req.user,
-        error: 'Vui lòng nhập đầy đủ thông tin!',
-        success: null
-      })
+      return reply.view('change_password.pug', { user: req.user, error: 'Vui lòng nhập đầy đủ thông tin!', success: null })
     }
-
-    // Kiểm tra xác nhận mật khẩu
     if (newPassword !== confirmPassword) {
-      return reply.view('change_password.pug', {
-        user: req.user,
-        error: 'Mật khẩu xác nhận không khớp!',
-        success: null
-      })
+      return reply.view('change_password.pug', { user: req.user, error: 'Mật khẩu xác nhận không khớp!', success: null })
     }
 
-    // Tìm user hiện tại
-    const user = await fastify.mongo.db.collection('users').findOne({
-      _id: new ObjectId(req.user.id)
-    })
-
+    const user = await fastify.mongo.db.collection('users').findOne({ _id: new ObjectId(req.user.id) })
     if (!user) {
-      return reply.view('change_password.pug', {
-        user: req.user,
-        error: 'Không tìm thấy tài khoản!',
-        success: null
-      })
+      return reply.view('change_password.pug', { user: req.user, error: 'Không tìm thấy tài khoản!', success: null })
     }
 
-    // Kiểm tra mật khẩu cũ
     const match = await bcrypt.compare(currentPassword, user.password)
-
     if (!match) {
-      return reply.view('change_password.pug', {
-        user: req.user,
-        error: 'Mật khẩu hiện tại không đúng!',
-        success: null
-      })
+      return reply.view('change_password.pug', { user: req.user, error: 'Mật khẩu hiện tại không đúng!', success: null })
     }
 
-    // Hash mật khẩu mới
     const hashedPassword = await bcrypt.hash(newPassword, 10)
+    await fastify.mongo.db.collection('users').updateOne({ _id: user._id }, { $set: { password: hashedPassword } })
 
-    // Cập nhật DB
-    await fastify.mongo.db.collection('users').updateOne(
-      { _id: user._id },
-      { $set: { password: hashedPassword } }
-    )
+    // Đổi mật khẩu sẽ đăng xuất tài khoản -> nhân viên chuyển về "Ngưng làm việc"
+    if (req.user.role === 'user') {
+      await setWorkStatusForAccount(req.user.id, 'Ngưng làm việc')
+    }
 
-    // Xóa cookie token để buộc đăng nhập lại và chuyển hướng về trang login
     return reply.clearCookie('token').redirect('/login')
-
   } catch (err) {
     fastify.log.error(err)
-
-    return reply.view('change_password.pug', {
-      user: req.user,
-      error: '❌ Đã xảy ra lỗi hệ thống!',
-      success: null
-    })
+    return reply.view('change_password.pug', { user: req.user, error: '❌ Đã xảy ra lỗi hệ thống!', success: null })
   }
 })
 
 
 // ================= CHẠY SERVER =================
-fastify.listen({ port: 3000 }, err => {
+fastify.listen({ port: 3000, host: '0.0.0.0' }, err => {
   if (err) throw err
-  console.log('Server đang chạy tại http://localhost:3000')
+  console.log('CRM Cửa Hàng Điện Thoại đang chạy tại http://localhost:3000')
+  migrateEmployeePositions()
+  ensureAnnouncementIndexes()
+
+  // Quét bảo hành sắp hết hạn -> tự tạo lịch nhắc (chạy ngay khi khởi động rồi lặp lại định kỳ)
+  generateWarrantyExpiryReminders()
+  setInterval(generateWarrantyExpiryReminders, AUTO_REMINDER_SCAN_INTERVAL_MS).unref()
+
+  // Quét khách hàng có sinh nhật tháng này -> tự tạo lịch nhắc chăm sóc sinh nhật (qua tháng mới sẽ tự tạo tiếp)
+  generateBirthdayReminders()
+  setInterval(generateBirthdayReminders, AUTO_REMINDER_SCAN_INTERVAL_MS).unref()
 })

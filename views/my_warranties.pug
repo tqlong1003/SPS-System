@@ -1,0 +1,54 @@
+doctype html
+html
+  head
+    title Bảo hành của tôi - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-shield-halved
+          span(style="padding: 8px 0; color: var(--text-secondary);") Thời hạn bảo hành sản phẩm của bạn
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 🛡️ Bảo hành của tôi
+          p Danh sách phiếu bảo hành các sản phẩm bạn đã mua
+
+        if !customer
+          .card-form
+            p.alert-error Tài khoản của bạn chưa được liên kết với hồ sơ khách hàng. Vui lòng liên hệ cửa hàng để được hỗ trợ.
+        else
+          .table-container
+            table
+              thead
+                tr
+                  th Mã phiếu
+                  th Sản phẩm
+                  th Ngày mua
+                  th Hết hạn
+                  th Còn lại
+                  th Trạng thái
+              tbody
+                if warranties && warranties.length
+                  each w in warranties
+                    tr
+                      td(style="font-weight: bold;")= w.warrantyCode
+                      td= w.productName
+                      td= w.purchaseDate
+                      td= w.expiryDate || 'Không có'
+                      td= (w.daysLeft !== null && w.daysLeft !== undefined) ? (w.daysLeft + ' ngày') : '—'
+                      td
+                        span(style=`font-weight:600; color:${w.effectiveStatus === 'Hết hạn' ? '#c5221f' : (w.effectiveStatus === 'Đã bảo hành xong' ? '#137333' : '#1a73e8')};`)= w.effectiveStatus
+                else
+                  tr
+                    td(colspan="6" style="text-align:center; padding:20px;") Bạn chưa có phiếu bảo hành nào
+
+    include _script.pug

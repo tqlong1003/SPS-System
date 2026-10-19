@@ -1,0 +1,66 @@
+doctype html
+html
+  head
+    title Thêm sản phẩm - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-mobile-alt
+            h2 Thêm sản phẩm mới
+
+          form(method="POST" action="/products/add")
+            h3.form-section-title Thông tin cơ bản
+            .form-group
+              label Mã sản phẩm (để trống sẽ tự sinh)
+              input(name="sku" placeholder="VD: SP-000123")
+            .form-group
+              label Tên sản phẩm
+              input(name="name" placeholder="VD: iPhone 15 Pro Max 256GB" required)
+            .form-row
+              .form-group
+                label Hãng
+                select(name="brand")
+                  each b in brands
+                    option(value=b)= b
+              .form-group
+                label Danh mục
+                select(name="category")
+                  each c in categories
+                    option(value=c)= c
+            .form-group
+              label Số lượng tồn kho
+              input(type="number" name="stockQty" min="0" value="0" required)
+
+            h3.form-section-title Chi tiết sản phẩm
+            .form-row
+              .form-group
+                label Loại
+                select(name="productType")
+                  each t in productTypes
+                    option(value=t)= t
+              .form-group
+                label Bảo hành (tháng)
+                input(type="number" name="warrantyMonths" min="0" value="12")
+            .form-group
+              label Màu
+              input(name="color" placeholder="VD: Titan tự nhiên")
+
+            .form-actions
+              button.btn-save(type="submit") Lưu sản phẩm
+              a.btn-cancel(href="/products") Hủy
+
+    include _script.pug

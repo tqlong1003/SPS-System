@@ -1,0 +1,112 @@
+doctype html
+html
+  head
+    title PhoneShop CRM - Chi tiết nhân viên
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+    style.
+      .ed-hero { display: flex; align-items: center; gap: 16px; padding-bottom: 18px; margin-bottom: 20px; border-bottom: 1px solid rgba(128,128,128,.25); }
+      .ed-avatar { width: 64px; height: 64px; border-radius: 50%; background: #6366f1; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; font-weight: 700; flex-shrink: 0; }
+      .ed-hero h2 { margin: 0 0 6px; }
+      .ed-hero-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: .92rem; }
+      .ed-section { margin-bottom: 24px; }
+      .ed-section-title { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 1rem; font-weight: 600; }
+      .ed-section-title i { color: #6366f1; }
+      .ed-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 24px; }
+      .ed-item { display: flex; flex-direction: column; gap: 3px; }
+      .ed-item.full { grid-column: 1 / -1; }
+      .ed-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; opacity: .6; }
+      .ed-value { font-weight: 500; word-break: break-word; }
+      .ed-muted { opacity: .5; font-weight: 400; }
+
+  body.dashboard-body
+    include sidebar.pug
+
+    //- Một ô thông tin: nhãn + giá trị (rỗng thì hiện "Chưa cập nhật")
+    mixin item(label, value, full)
+      .ed-item(class=(full ? 'full' : ''))
+        span.ed-label= label
+        if value
+          span.ed-value= value
+        else
+          span.ed-value.ed-muted Chưa cập nhật
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm nhanh...")
+
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-id-card
+            h2 Chi tiết nhân viên
+
+          .ed-hero
+            .ed-avatar= (employee.name || '?').charAt(0).toUpperCase()
+            div
+              h2= employee.name || 'Chưa cập nhật'
+              .ed-hero-meta
+                span
+                  i.fas.fa-hashtag(style="margin-right:4px;")
+                  = employee.employeeCode || 'Chưa có mã'
+                span
+                  i.fas.fa-briefcase(style="margin-right:4px;")
+                  = employee.position || 'Nhân viên'
+                span.status-badge(class=(employee.status === 'Đang làm việc' ? 'status-active' : 'status-inactive'))= employee.status
+
+          .ed-section
+            h3.ed-section-title
+              i.fas.fa-user
+              | Thông tin cá nhân
+            .ed-grid
+              +item('Họ và tên', employee.name)
+              +item('Năm sinh', info.birthYearText)
+              +item('Giới tính', employee.gender)
+              +item('Số điện thoại', employee.phone)
+              +item('Email', employee.email)
+              +item('Địa chỉ', employee.address, true)
+
+          .ed-section
+            h3.ed-section-title
+              i.fas.fa-briefcase
+              | Thông tin công việc
+            .ed-grid
+              +item('Mã nhân viên', employee.employeeCode)
+              +item('Chức vụ', employee.position || 'Nhân viên')
+              +item('Ngày vào làm', info.startDateText)
+              +item('Trạng thái làm việc', employee.status)
+              +item('Hồ sơ tạo lúc', info.createdAtText)
+
+          .ed-section
+            h3.ed-section-title
+              i.fas.fa-user-lock
+              | Tài khoản đăng nhập
+            if account
+              .ed-grid
+                +item('Tên đăng nhập', account.username)
+                +item('Tên hiển thị', account.name)
+                +item('Vai trò', info.accountRoleText)
+                +item('Số điện thoại tài khoản', account.phone)
+                +item('Tài khoản tạo lúc', info.accountCreatedAtText)
+            else
+              p.ed-muted Nhân viên này chưa được liên kết với tài khoản đăng nhập nào.
+
+          .ed-section
+            h3.ed-section-title
+              i.fas.fa-note-sticky
+              | Ghi chú
+            .ed-grid
+              +item('Ghi chú', employee.note, true)
+
+          .form-actions
+            a.btn-save(href=`/employees/edit/${employee._id}`) Sửa thông tin
+            a.btn-cancel(href="/employees") Quay lại danh sách
+
+    include _script.pug

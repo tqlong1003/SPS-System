@@ -1,0 +1,64 @@
+doctype html
+html
+  head
+    title= (isEdit ? 'Sửa khiếu nại' : 'Gửi khiếu nại') + ' - PhoneShop CRM'
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+    style.
+      .card-form textarea {
+        width: 100%; padding: 10px 12px; border: 1px solid #d0d5dd; border-radius: 8px;
+        font-family: inherit; font-size: 0.95rem; resize: vertical; box-sizing: border-box;
+      }
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form(style="max-width: 750px;")
+          .card-header
+            i.fas.fa-comment-dots
+            h2= isEdit ? `Sửa khiếu nại ${complaint.complaintCode}` : 'Gửi khiếu nại mới'
+
+          if error
+            p.alert-error(style="font-weight: 600;")
+              i.fas.fa-triangle-exclamation
+              |  #{error}
+
+          if isEdit
+            p(style="color:#888; font-size:0.9em;") Bạn chỉ sửa được khi nhân viên cửa hàng chưa xác nhận khiếu nại.
+
+          form(method="POST" action=(isEdit ? `/my/complaints/edit/${complaint._id}` : '/my/complaints/add'))
+            .form-group
+              label Loại khiếu nại
+              select(name="category")
+                each cat in categories
+                  option(value=cat, selected=(form.category === cat))= cat
+
+            .form-group
+              label Đơn hàng liên quan (không bắt buộc)
+              select(name="orderId")
+                option(value="") -- Không chọn --
+                each o in orders
+                  option(value=o._id, selected=(form.orderId === String(o._id)))= o.label
+
+            .form-group
+              label Tiêu đề
+              input(name="title" maxlength=titleMax required value=form.title || '' placeholder="VD: Máy bị lỗi màn hình sau 3 ngày")
+
+            .form-group
+              label Nội dung chi tiết
+              textarea(name="content" rows="6" maxlength=contentMax required placeholder="Mô tả vấn đề bạn gặp phải...")= form.content || ''
+
+            .form-actions
+              button.btn-save(type="submit")= isEdit ? 'Lưu thay đổi' : 'Gửi khiếu nại'
+              a.btn-cancel(href=(isEdit ? `/my/complaints/${complaint._id}` : '/my/complaints')) Hủy
+
+    include _script.pug

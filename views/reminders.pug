@@ -1,0 +1,70 @@
+doctype html
+html
+  head
+    title Nhắc lịch chăm sóc - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-bell
+          span(style="padding: 8px 0; color: var(--text-secondary);") Việc chăm sóc khách hàng cần thực hiện
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 🔔 Nhắc lịch chăm sóc khách hàng
+          p= user.role === 'admin' ? 'Toàn bộ lịch hẹn chăm sóc khách hàng trong hệ thống' : 'Lịch hẹn chăm sóc khách hàng bạn đang phụ trách'
+
+        div(style="margin-bottom: 15px; display:flex; gap:10px;")
+          a(href="/reminders" style=`padding:8px 16px; border-radius:8px; text-decoration:none; font-weight:600; ${!showDone ? 'background:var(--primary); color:white;' : 'background:#eee; color:#333;'}`) Chờ thực hiện
+          a(href="/reminders?filter=done" style=`padding:8px 16px; border-radius:8px; text-decoration:none; font-weight:600; ${showDone ? 'background:var(--primary); color:white;' : 'background:#eee; color:#333;'}`) Đã hoàn thành
+
+        .table-container
+          table
+            thead
+              tr
+                th Ngày hẹn
+                th Khách hàng
+                th SĐT
+                th Nội dung
+                th Trạng thái
+                th Hành động
+            tbody
+              if reminders && reminders.length > 0
+                each r in reminders
+                  tr
+                    td(style=`font-weight:700; color:${r.isOverdue ? '#c5221f' : '#1a1a1a'};`)
+                      = r.dueDateText
+                      if r.isOverdue
+                        span(style="margin-left:6px; font-size:0.8em; color:#c5221f;") (Quá hạn)
+                    td(style="font-weight:600;")
+                      if r.customer
+                        a(href=`/customers/detail/${r.customer._id}` style="color: var(--primary); text-decoration:none;")= r.customer.name
+                      else
+                        | Khách hàng đã bị xóa
+                    td= r.customer ? (r.customer.phone || 'Chưa có SĐT') : ''
+                    td= r.note || '(không có ghi chú)'
+                    td
+                      if r.status === 'Đã hoàn thành'
+                        span(style="background:#e6f4ea; color:#137333; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Đã hoàn thành
+                      else if r.isOverdue
+                        span(style="background:#fce8e6; color:#c5221f; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Quá hạn
+                      else
+                        span(style="background:#e8f0fe; color:#1a73e8; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Chờ thực hiện
+                    td
+                      if r.customer
+                        a.btn-edit(href=`/customers/detail/${r.customer._id}`) Xem KH
+                      if r.status !== 'Đã hoàn thành'
+                        a.btn-edit(href=`/reminders/done/${r._id}`, style="background:#137333; margin-left:5px;") Đánh dấu xong
+                      a.btn-delete(href=`/reminders/delete/${r._id}`, onclick="return confirm('Xóa lịch nhắc này?')", style="margin-left: 5px;") Xóa
+              else
+                tr
+                  td(colspan="6", style="text-align: center; padding: 20px;")= showDone ? 'Chưa có việc nào đã hoàn thành' : 'Không có việc chăm sóc nào đang chờ - tuyệt vời!'
+
+    include _script.pug

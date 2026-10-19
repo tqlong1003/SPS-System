@@ -1,0 +1,191 @@
+doctype html
+html
+  head
+    title Tạo đơn hàng - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+    style.
+      .order-item-row {
+        display: grid;
+        grid-template-columns: 2fr 1fr auto;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .order-item-row select, .order-item-row input {
+        margin: 0;
+      }
+      .order-item-row .row-warning {
+        grid-column: 1 / -1;
+        margin: -4px 0 0;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #b91c1c;
+        display: none;
+      }
+      .order-item-row.has-warning select,
+      .order-item-row.has-warning input {
+        border-color: #dc2626;
+      }
+      .order-item-remove {
+        background: #fee2e2;
+        color: #b91c1c;
+        border: none;
+        border-radius: 8px;
+        width: 40px;
+        height: 40px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form(style="max-width: 750px;")
+          .card-header
+            i.fas.fa-cash-register
+            h2 Tạo đơn hàng bán mới
+
+          if !products || products.length === 0
+            p.alert-error Chưa có sản phẩm nào đang bán trong kho. Vui lòng thêm sản phẩm trước khi tạo đơn hàng.
+
+          if error
+            p.alert-error(style="font-weight: 600;")
+              i.fas.fa-triangle-exclamation
+              |  #{error}
+          p.alert-error#clientError(style="display: none; font-weight: 600;")
+
+          - var formRows = (form && form.rows && form.rows.length) ? form.rows : [{ productId: '', quantity: 1 }]
+
+          form#orderForm(method="POST" action="/orders/add")
+            .form-group
+              label Khách hàng
+              select(name="customerId" required)
+                option(value="") -- Chọn khách hàng --
+                each c in customers
+                  option(value=c._id, selected=(form && String(c._id) === form.customerId))= `${c.name} (${c.phone || 'chưa có SĐT'})`
+
+
+            .form-group
+              label Sản phẩm trong đơn
+              #orderItems
+                each row in formRows
+                  .order-item-row
+                    select(name="productId" onchange="checkRow(this)")
+                      option(value="") -- Chọn sản phẩm --
+                      each p in products
+                        - var outOfStock = Number(p.stockQty || 0) <= 0
+                        option(value=p._id, selected=(String(p._id) === row.productId))= outOfStock ? `${p.name} (hết hàng)` : `${p.name} (còn ${p.stockQty})`
+                    input(type="number" name="quantity" min="1" value=row.quantity placeholder="SL" oninput="checkRow(this)")
+                    button.order-item-remove(type="button" onclick="removeRow(this)" title="Xóa dòng") ×
+                    .row-warning
+
+              button.btn-cancel(type="button" onclick="addRow()" style="margin-top: 4px;")
+                i.fas.fa-plus
+                |  Thêm sản phẩm khác
+
+            .form-group
+              label Ghi chú
+              input(name="note" value=(form && form.note) || '')
+
+            .form-actions
+              button.btn-save(type="submit") Tạo đơn hàng
+              a.btn-cancel(href="/orders") Hủy
+
+    include _script.pug
+    script.
+      const productsData = !{JSON.stringify((products || []).map(p => ({ id: String(p._id), name: p.name, stock: Number(p.stockQty) || 0 }))).replace(/</g, '\\u003c')}
+      const productById = Object.fromEntries(productsData.map(p => [p.id, p]))
+
+      function escapeHtml(text) {
+        return String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+      }
+
+      function optionLabel(p) {
+        return p.stock <= 0 ? `${escapeHtml(p.name)} (hết hàng)` : `${escapeHtml(p.name)} (còn ${p.stock})`
+      }
+
+      function buildRowHTML() {
+        let options = '<option value="">-- Chọn sản phẩm --</option>'
+        productsData.forEach(p => {
+          options += `<option value="${p.id}">${optionLabel(p)}</option>`
+        })
+        return `<div class="order-item-row">
+          <select name="productId" onchange="checkRow(this)">${options}</select>
+          <input type="number" name="quantity" min="1" value="1" placeholder="SL" oninput="checkRow(this)">
+          <button class="order-item-remove" type="button" onclick="removeRow(this)" title="Xóa dòng">×</button>
+          <div class="row-warning"></div>
+        </div>`
+      }
+
+      function addRow() {
+        const container = document.getElementById('orderItems')
+        const wrapper = document.createElement('div')
+        wrapper.innerHTML = buildRowHTML()
+        container.appendChild(wrapper.firstElementChild)
+      }
+
+      function removeRow(btn) {
+        const rows = document.querySelectorAll('#orderItems .order-item-row')
+        if (rows.length > 1) {
+          btn.closest('.order-item-row').remove()
+        }
+      }
+
+      // Tổng số lượng đang chọn cho từng sản phẩm (gộp nhiều dòng trùng sản phẩm)
+      function totalsByProduct() {
+        const totals = {}
+        document.querySelectorAll('#orderItems .order-item-row').forEach(row => {
+          const pid = row.querySelector('select').value
+          const qty = parseInt(row.querySelector('input').value, 10) || 0
+          if (pid && qty > 0) totals[pid] = (totals[pid] || 0) + qty
+        })
+        return totals
+      }
+
+      // Trả về nội dung cảnh báo (hoặc '') cho 1 sản phẩm theo tổng số lượng đã chọn
+      function stockProblem(pid, totals) {
+        const p = productById[pid]
+        if (!p) return ''
+        if (p.stock <= 0) return `Đơn hàng này hiện không có sẵn: "${p.name}" đã hết hàng.`
+        if ((totals[pid] || 0) > p.stock) return `"${p.name}" chỉ còn ${p.stock} sản phẩm, không đủ số lượng bạn chọn.`
+        return ''
+      }
+
+      function checkAllRows() {
+        const totals = totalsByProduct()
+        let hasProblem = false
+        document.querySelectorAll('#orderItems .order-item-row').forEach(row => {
+          const pid = row.querySelector('select').value
+          const msg = pid ? stockProblem(pid, totals) : ''
+          const warn = row.querySelector('.row-warning')
+          warn.textContent = msg
+          warn.style.display = msg ? 'block' : 'none'
+          row.classList.toggle('has-warning', !!msg)
+          if (msg) hasProblem = true
+        })
+        return hasProblem
+      }
+
+      function checkRow() { checkAllRows() }
+
+      document.getElementById('orderForm').addEventListener('submit', function (e) {
+        const banner = document.getElementById('clientError')
+        if (checkAllRows()) {
+          e.preventDefault()
+          banner.textContent = 'Đơn hàng này hiện không có sẵn. Vui lòng kiểm tra lại các sản phẩm được đánh dấu đỏ.'
+          banner.style.display = 'block'
+          banner.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      })
+
+      checkAllRows()

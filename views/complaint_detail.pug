@@ -1,0 +1,122 @@
+doctype html
+html
+  head
+    title Chi tiết khiếu nại - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+    style.
+      .complaint-note { width: 100%; padding: 10px 12px; border: 1px solid #d0d5dd; border-radius: 8px; font-family: inherit; font-size: 0.95rem; resize: vertical; box-sizing: border-box; }
+  body.dashboard-body
+    include sidebar.pug
+
+    //- Nhãn màu trạng thái khiếu nại
+    mixin complaintBadge(status)
+      - var palette = { 'Mới gửi': ['#e8f0fe', '#1a73e8'], 'Đã xác nhận': ['#fef7e0', '#b06000'], 'Đang xử lý': ['#fff0e0', '#c2410c'], 'Hoàn thành': ['#e6f4ea', '#137333'], 'Đã đóng': ['#eceff1', '#546e7a'] }
+      - var colors = palette[status] || palette['Mới gửi']
+      span(style=`background:${colors[0]}; color:${colors[1]}; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600; white-space:nowrap;`)= status
+
+    //- Cùng 1 trang cho 2 vai trò: khách hàng (/my/complaints/:id) và nhân viên/admin (/complaints/detail/:id)
+    - var isCustomer = user.role === 'customer'
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 Khiếu nại #{complaint.complaintCode}
+          p= complaint.title
+
+        .stats-grid
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Trạng thái
+              h2(style="font-size: 1.1rem;")
+                +complaintBadge(complaint.status)
+          if !isCustomer
+            .stat-card
+              .stat-info(style="min-width: 0;")
+                span Khách hàng
+                h2(style="font-size: 1.1rem; word-break: break-word;")
+                  if customer
+                    a(href=`/customers/detail/${customer._id}` style="color:inherit;")= customer.name
+                  else
+                    | Chưa rõ
+            .stat-card
+              .stat-info(style="min-width: 0;")
+                span Số điện thoại khách
+                h2(style="font-size: 1.1rem; word-break: break-word;")= (customer && customer.phone) || 'Chưa có'
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Loại khiếu nại
+              h2(style="font-size: 1.1rem;")= complaint.category
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Đơn hàng liên quan
+              h2(style="font-size: 1.1rem;")
+                if complaint.orderId && !isCustomer
+                  a(href=`/orders/detail/${complaint.orderId}` style="color:inherit;")= complaint.orderCode || 'Xem đơn'
+                else
+                  = complaint.orderCode || 'Không có'
+          if !isCustomer
+            .stat-card
+              .stat-info(style="min-width: 0;")
+                span Người phụ trách
+                h2(style="font-size: 1.1rem; word-break: break-word;")= assignedStaffName
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Ngày gửi
+              h2(style="font-size: 1.1rem;")= complaint.createdAtText
+
+        h3(style="color: white; margin: 20px 0 10px;") Nội dung khiếu nại
+        .table-container(style="margin-bottom: 24px; padding: 16px; white-space: pre-wrap; word-break: break-word;")= complaint.content
+
+        if complaint.resolution
+          h3(style="color: white; margin: 20px 0 10px;") Kết quả xử lý
+          .table-container(style="margin-bottom: 24px; padding: 16px; white-space: pre-wrap; word-break: break-word;")= complaint.resolution
+
+        //- NHÂN VIÊN: chỉ hiện đúng 1 bước xử lý hợp lệ theo trạng thái hiện tại
+        if !isCustomer
+          if nextAction
+            h3(style="color: white; margin: 20px 0 10px;")= `Bước tiếp theo: ${nextAction.label}`
+            .table-container(style="margin-bottom: 24px; padding: 16px;")
+              form(method="POST" action=`/complaints/${complaint._id}/${nextAction.key}`)
+                .form-group
+                  label= nextAction.requireNote ? 'Kết quả xử lý (bắt buộc - khách hàng sẽ thấy nội dung này)' : 'Ghi chú gửi khách hàng (không bắt buộc - khách hàng sẽ thấy)'
+                  textarea.complaint-note(name="note" rows="4" maxlength=noteMax required=nextAction.requireNote)
+                .form-actions
+                  button.btn-save(type="submit")= nextAction.label
+          else
+            p(style="color:#ccc; margin: 16px 0;") Khiếu nại đã được đóng.
+
+        h3(style="color: white; margin: 20px 0 10px;")= isCustomer ? 'Tiến độ xử lý' : 'Lịch sử xử lý'
+        .table-container(style="margin-bottom: 24px; padding: 16px;")
+          each h in complaint.history.slice().reverse()
+            div(style="padding: 12px 16px; border-bottom: 1px solid #eee;")
+              div(style="display:flex; justify-content: space-between; font-size: 0.85em; color: #888;")
+                span= h.status
+                span= h.atText + ' · ' + (h.byName || '')
+              if h.note
+                div(style="margin-top: 4px; white-space: pre-wrap;")= h.note
+
+        .complaint-actions
+          //- KHÁCH HÀNG: chỉ sửa / xóa được khi nhân viên chưa xác nhận
+          if isCustomer && canModify
+            a.btn-edit(href=`/my/complaints/edit/${complaint._id}`)
+              i.fas.fa-pen
+              |  Sửa khiếu nại
+            form(method="POST" action=`/my/complaints/delete/${complaint._id}` onsubmit="return confirm('Xóa khiếu nại này?')")
+              button.btn-delete(type="submit")
+                i.fas.fa-trash
+                |  Xóa khiếu nại
+          a.btn-back-list(href=(isCustomer ? '/my/complaints' : '/complaints'))
+            i.fas.fa-arrow-left
+            |  Quay lại danh sách
+
+    include _script.pug

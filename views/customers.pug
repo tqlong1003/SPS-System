@@ -1,0 +1,72 @@
+doctype html
+html
+  head
+    title Quản lý khách hàng - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    main.main-content
+      header.topbar
+        form.search-bar(method="GET", action="/customers")
+          i.fas.fa-search
+          input(type="text", name="keyword", value=searchKeyword || '', placeholder="Tìm theo tên, mã KH, SĐT, email...")
+          button(type="submit", style="border: none; background: var(--primary); color: white; padding: 8px 14px; border-radius: 8px; cursor: pointer;") Tìm
+          if searchKeyword || showBirthdayOnly
+            a(href="/customers", style="color: var(--text-secondary); text-decoration: none; font-weight: 600;") Xóa
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 👥 Quản lý khách hàng
+          p= user.role === 'admin' ? 'Toàn bộ danh sách khách hàng mua điện thoại trong hệ thống' : 'Danh sách khách hàng bạn đang phụ trách'
+
+        if showBirthdayOnly
+          div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #fff7ed; color: #c2410c; font-weight: 600;")
+            | 🎂 Đang hiển thị các khách hàng có sinh nhật trong tháng này.
+
+        a.btn-add(href="/customers/add" style="margin-bottom: 15px;")
+          i.fas.fa-plus
+          |  Thêm khách hàng
+
+        .table-container
+          table
+            thead
+              tr
+                th Mã KH
+                th Tên khách hàng
+                th SĐT / Email
+                th Phụ trách
+                th Hành động
+            tbody
+              if customers && customers.length > 0
+                each c in customers
+                  tr
+                    td(style="font-weight: bold;")= c.customerCode
+                    td(style="font-weight: bold;")
+                      = c.name
+                      if c.isBirthdayMonth
+                        span(title="Sinh nhật tháng này" style="margin-left:6px;") 🎂
+                      if c.userId
+                        i.fas.fa-user-check(title="Đã có tài khoản đăng nhập" style="margin-left:6px; color:#6366f1;")
+                    td
+                      div= c.phone || 'Chưa có SĐT'
+                      div(style="color:#888; font-size:0.85em;")= c.email
+                    td= c.assignedToName
+                    td
+                      a.btn-edit(href=`/customers/detail/${c._id}`, style="background: var(--primary); margin-right: 5px; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;")
+                        i.fas.fa-eye(style="margin-right: 4px;")
+                      a.btn-edit(href=`/customers/edit/${c._id}` style="padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") Sửa
+                      if !c.userId
+                        a.btn-edit(href=`/register?customerId=${c._id}`, title="Cấp tài khoản đăng nhập cho khách hàng", style="margin-left: 5px; background:#137333; color:white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") Cấp TK
+                      if user.role === 'admin'
+                        a.btn-delete(href=`/customers/delete/${c._id}`, onclick="return confirm('Xóa khách hàng này?')", style="margin-left: 5px; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 0.9rem;") Xóa
+              else
+                tr
+                  td(colspan="5", style="text-align: center; padding: 20px;")= searchKeyword ? 'Không tìm thấy khách hàng phù hợp' : 'Chưa có dữ liệu khách hàng'
+
+    include _script.pug

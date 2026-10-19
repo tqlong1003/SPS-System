@@ -1,0 +1,43 @@
+//- Trang chi tiết sản phẩm: tên SP, mã SP, bảo hành, loại, hãng, màu
+mixin detailRow(label, value)
+  dt= label
+  dd= (value !== undefined && value !== null && value !== '') ? value : 'Chưa cập nhật'
+
+doctype html
+html
+  head
+    title Chi tiết sản phẩm - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .product-detail
+          .card-header
+            i.fas.fa-mobile-alt
+            h2 Chi tiết sản phẩm
+
+          dl.detail-list
+            +detailRow('Tên sản phẩm', product.name)
+            +detailRow('Mã sản phẩm', product.sku)
+            +detailRow('Bảo hành', product.warrantyMonths !== undefined && product.warrantyMonths !== null ? (Number(product.warrantyMonths) > 0 ? product.warrantyMonths + ' tháng' : 'Không bảo hành') : '')
+            +detailRow('Loại', product.productType)
+            +detailRow('Hãng', product.brand)
+            +detailRow('Màu', product.color)
+
+          .form-actions(style="max-width: 420px;")
+            if user.role === 'admin'
+              a.btn-save(href=`/products/edit/${product._id}` style="text-align:center; text-decoration:none;") Sửa sản phẩm
+            a.btn-cancel(href="/products") Quay lại
+
+    include _script.pug

@@ -1,0 +1,92 @@
+doctype html
+html
+  head
+    title Khiếu nại - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    //- Nhãn màu trạng thái khiếu nại
+    mixin complaintBadge(status)
+      - var palette = { 'Mới gửi': ['#e8f0fe', '#1a73e8'], 'Đã xác nhận': ['#fef7e0', '#b06000'], 'Đang xử lý': ['#fff0e0', '#c2410c'], 'Hoàn thành': ['#e6f4ea', '#137333'], 'Đã đóng': ['#eceff1', '#546e7a'] }
+      - var colors = palette[status] || palette['Mới gửi']
+      span(style=`background:${colors[0]}; color:${colors[1]}; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600; white-space:nowrap;`)= status
+
+    //- Cùng 1 trang cho 2 vai trò: khách hàng (/my/complaints) và nhân viên/admin (/complaints)
+    - var isCustomer = user.role === 'customer'
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          if isCustomer
+            h1 📣 Khiếu nại của tôi
+            p Gửi khiếu nại tới cửa hàng và theo dõi tiến độ xử lý
+          else
+            h1 📣 Khiếu nại khách hàng
+            p= user.role === 'admin' ? 'Toàn bộ khiếu nại trong hệ thống' : 'Khiếu nại của khách hàng bạn phụ trách (và khiếu nại chưa có người nhận)'
+
+        if isCustomer && !customer
+          p.alert-error Tài khoản chưa được liên kết với hồ sơ khách hàng. Vui lòng liên hệ cửa hàng.
+        else
+          if isCustomer
+            a.btn-add(href="/my/complaints/add" style="margin-bottom: 15px;")
+              i.fas.fa-plus
+              |  Gửi khiếu nại mới
+          else
+            //- Bộ lọc theo trạng thái, kèm số lượng
+            div(style="margin-bottom: 15px; display:flex; gap:8px; flex-wrap:wrap;")
+              a.btn-edit(href="/complaints" style=`background:${statusFilter ? '#5f6368' : '#1a73e8'};`) Tất cả
+              each s in statuses
+                a.btn-edit(href=`/complaints?status=${encodeURIComponent(s)}` style=`background:${statusFilter === s ? '#1a73e8' : '#5f6368'};`)= `${s} (${counts[s] || 0})`
+
+          .table-container
+            table
+              thead
+                tr
+                  th Mã
+                  if !isCustomer
+                    th Khách hàng
+                  th Tiêu đề
+                  th Loại
+                  th Đơn hàng
+                  th Ngày gửi
+                  th Trạng thái
+                  th Hành động
+              tbody
+                if complaints && complaints.length > 0
+                  each c in complaints
+                    tr
+                      td(style="font-weight: bold;")= c.complaintCode
+                      if !isCustomer
+                        td= c.customerName
+                      td= c.title
+                      td= c.category
+                      td= c.orderCode || '-'
+                      td= c.createdAtText
+                      td
+                        +complaintBadge(c.status)
+                      td
+                        if isCustomer
+                          a.btn-edit(href=`/my/complaints/${c._id}`, style="background:#5f6368; margin-right:5px;") Xem
+                          //- Chỉ sửa / xóa được khi nhân viên CHƯA xác nhận
+                          if c.status === NEW_STATUS
+                            a.btn-edit(href=`/my/complaints/edit/${c._id}`) Sửa
+                            form(method="POST" action=`/my/complaints/delete/${c._id}` onsubmit="return confirm('Xóa khiếu nại này?')" style="display:inline; margin-left:5px;")
+                              button.btn-delete(type="submit" style="border:none; cursor:pointer;") Xóa
+                        else
+                          a.btn-edit(href=`/complaints/detail/${c._id}`, style="background:#5f6368;") Xem / Xử lý
+                else
+                  tr
+                    td(colspan=(isCustomer ? 7 : 8), style="text-align: center; padding: 20px;")= isCustomer ? 'Bạn chưa gửi khiếu nại nào' : 'Không có khiếu nại nào'
+
+    include _script.pug

@@ -1,0 +1,66 @@
+doctype html
+html
+  head
+    title Sửa sản phẩm - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-mobile-alt
+            h2 Cập nhật sản phẩm
+
+          form(method="POST" action=`/products/edit/${product._id}`)
+            h3.form-section-title Thông tin cơ bản
+            .form-group
+              label Mã sản phẩm
+              input(name="sku" value=product.sku required)
+            .form-group
+              label Tên sản phẩm
+              input(name="name" value=product.name required)
+            .form-row
+              .form-group
+                label Hãng
+                select(name="brand")
+                  each b in brands
+                    option(value=b selected=(product.brand === b))= b
+              .form-group
+                label Danh mục
+                select(name="category")
+                  each c in categories
+                    option(value=c selected=(product.category === c))= c
+            .form-group
+              label Số lượng tồn kho
+              input(type="number" name="stockQty" min="0" value=product.stockQty required)
+
+            h3.form-section-title Chi tiết sản phẩm
+            .form-row
+              .form-group
+                label Loại
+                select(name="productType")
+                  each t in productTypes
+                    option(value=t selected=(product.productType === t))= t
+              .form-group
+                label Bảo hành (tháng)
+                input(type="number" name="warrantyMonths" min="0" value=(product.warrantyMonths !== undefined && product.warrantyMonths !== null ? product.warrantyMonths : 12))
+            .form-group
+              label Màu
+              input(name="color" value=product.color)
+
+            .form-actions
+              button.btn-save(type="submit") Lưu thay đổi
+              a.btn-cancel(href="/products") Hủy
+
+    include _script.pug

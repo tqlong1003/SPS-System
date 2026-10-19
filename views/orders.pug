@@ -1,0 +1,67 @@
+doctype html
+html
+  head
+    title Đơn hàng bán - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    main.main-content
+      header.topbar
+        form.search-bar(method="GET", action="/orders")
+          i.fas.fa-search
+          input(type="text", name="keyword", value=searchKeyword || '', placeholder="Tìm theo mã đơn hàng...")
+          button(type="submit", style="border: none; background: var(--primary); color: white; padding: 8px 14px; border-radius: 8px; cursor: pointer;") Tìm
+          if searchKeyword
+            a(href="/orders", style="color: var(--text-secondary); text-decoration: none; font-weight: 600;") Xóa
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 🧾 Đơn hàng bán
+          p= user.role === 'admin' ? 'Toàn bộ đơn hàng bán điện thoại trong hệ thống' : 'Các đơn hàng bạn đang phụ trách'
+
+        a.btn-add(href="/orders/add" style="margin-bottom: 15px;")
+          i.fas.fa-plus
+          |  Tạo đơn hàng
+
+        .table-container
+          table
+            thead
+              tr
+                th Mã đơn
+                th Khách hàng
+                th Sản phẩm
+                th Ngày tạo
+                th Trạng thái
+                th Hành động
+            tbody
+              if orders && orders.length > 0
+                each o in orders
+                  tr
+                    td(style="font-weight: bold;")= o.orderCode
+                    td= o.customerName
+                    td(style="font-size: 0.85em; color: #555;")= o.itemSummary
+                    td= o.createdAtText
+                    td
+                      if o.status === 'confirmed'
+                        span(style="background:#e6f4ea; color:#137333; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Đã xác nhận
+                      else
+                        span(style="background:#e8f0fe; color:#1a73e8; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Đang xử lý
+                    td
+                      a.btn-edit(href=`/orders/detail/${o._id}`, style="background:#5f6368; margin-right:5px;") Chi tiết
+                      a.btn-edit(href=`/orders/edit/${o._id}`) Sửa
+                      if o.status === 'open'
+                        a.btn-edit(href=`/orders/confirm/${o._id}`, style="background:#137333; margin-left:5px;", onclick="return confirm('Xác nhận đơn hàng này?')") Xác nhận đơn hàng
+                      if o.status === 'confirmed'
+                        a.btn-edit(href=`/warranties/add?orderId=${o._id}`, style="background:#1d4ed8; margin-left:5px;") Tạo bảo hành
+                      a.btn-delete(href=`/orders/delete/${o._id}`, onclick="return confirm('Xóa đơn hàng này?')", style="margin-left: 5px;") Xóa
+              else
+                tr
+                  td(colspan="6", style="text-align: center; padding: 20px;")= searchKeyword ? 'Không tìm thấy đơn hàng phù hợp' : 'Chưa có đơn hàng nào'
+
+    include _script.pug

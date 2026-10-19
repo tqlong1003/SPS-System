@@ -1,0 +1,55 @@
+doctype html
+html
+  head
+    title Sửa đơn hàng - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-pen
+            h2 Cập nhật đơn hàng #{order.orderCode}
+
+          div(style="margin-bottom: 16px; padding: 12px 14px; border-radius: 10px; background: #f0f9ff; color: #1d4ed8; font-size: 0.9rem;")
+            i.fas.fa-circle-info(style="margin-right: 6px;")
+            | Danh sách sản phẩm trong đơn không thể chỉnh sửa để tránh sai lệch tồn kho. Nếu cần đổi sản phẩm, hãy hủy đơn (tự hoàn kho) và tạo đơn mới.
+
+          .table-container(style="margin-bottom: 20px;")
+            table
+              thead
+                tr
+                  th Sản phẩm
+                  th SL
+              tbody
+                each i in order.items
+                  tr
+                    td= i.productName
+                    td= i.quantity
+
+          form(method="POST" action=`/orders/edit/${order._id}`)
+            .form-group
+              label Khách hàng
+              select(name="customerId" required)
+                each c in customers
+                  option(value=c._id selected=(order.customerId && order.customerId.toString() === c._id.toString()))= c.name
+            .form-group
+              label Ghi chú
+              input(name="note" value=order.note)
+
+            .form-actions
+              button.btn-save(type="submit") Lưu thay đổi
+              a.btn-cancel(href="/orders") Hủy
+
+    include _script.pug

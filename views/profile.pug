@@ -1,81 +1,99 @@
 doctype html
 html
   head
-    title Thông tin tài khoản - SPS System
+    title Thông tin tài khoản - PhoneShop CRM
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
-    // Thêm style inline ở đây để sửa kích thước ảnh
     style.
-      .avatar {
-        width: 150px; /* Tăng kích thước chiều rộng */
-        height: 150px; /* Tăng kích thước chiều cao, giữ tỷ lệ 1:1 cho hình tròn */
-        border-radius: 50%; /* Giữ hình ảnh bo tròn */
-        object-fit: cover; /* Đảm bảo hình ảnh được căn chỉnh tốt bên trong */
-        margin-bottom: 20px; /* Khoảng cách phía dưới ảnh */
-      }
       .avatar-placeholder {
-        width: 150px; /* Tăng kích thước chiều rộng của placeholder */
-        height: 150px; /* Tăng kích thước chiều cao của placeholder */
-        border-radius: 50%; /* Giữ placeholder bo tròn */
+        width: 150px;
+        height: 150px;
+        border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 60px; /* Tăng kích thước chữ bên trong placeholder */
-        background-color: #ddd; /* Màu nền cho placeholder */
-        margin-bottom: 20px; /* Khoảng cách phía dưới placeholder */
+        font-size: 60px;
+        background-color: #ddd;
+        margin-bottom: 20px;
       }
   body.dashboard-body
-    // Sidebar bên trái
     include sidebar.pug
 
-    // Khu vực nội dung bên phải
     main.main-content
       .profile-container
         .card-profile
           .card-header
             i.fas.fa-user-circle
             h2 Thông tin cá nhân
-  
-          if user.role === 'admin'
-            .profile-grid
-              .form-group
-                label Tên đăng nhập
-                input(type="text" value=user.username disabled)
-              .form-group
-                label Vai trò
-                span.badge-admin Admin
 
-            .action-footer
-              a.btn-back(href="/dashboard") Quay lại Dashboard
+          .avatar-section
+            .avatar-placeholder= (account.name || user.username).charAt(0).toUpperCase()
+            h3= account.name || 'Người dùng'
+            p.role-text= account.role === 'admin' ? 'Quản trị viên (Admin)' : (account.role === 'customer' ? 'Khách hàng' : 'Nhân viên bán hàng')
 
-          else
-            .avatar-section
-              if emp.avatar
-                img.avatar(src=emp.avatar alt="Avatar")
-              else
-                .avatar-placeholder= user.username.charAt(0).toUpperCase()
-              h3= emp.name || 'Người dùng'
-              p.role-text= emp.department || 'Chưa cập nhật'
+          .profile-grid
+            .form-group
+              label Tên đăng nhập
+              input(type="text" value=account.username disabled)
+            .form-group
+              label Họ tên
+              input(type="text" value=(account.name || 'Chưa cập nhật') disabled)
+            .form-group
+              label Vai trò
+              input(type="text" value=(account.role === 'admin' ? 'Quản trị viên' : (account.role === 'customer' ? 'Khách hàng' : 'Nhân viên bán hàng')) disabled)
+            .form-group
+              label Số điện thoại
+              input(type="text" value=(account.phone || 'Chưa cập nhật') disabled)
+            if account.role === 'customer' && customer
+              .form-group
+                label Mã khách hàng
+                input(type="text" value=(customer.customerCode || 'Chưa cập nhật') disabled)
+              .form-group
+                label Email
+                input(type="text" value=(customer.email || 'Chưa cập nhật') disabled)
+              .form-group
+                label Địa chỉ
+                input(type="text" value=(customer.address || 'Chưa cập nhật') disabled)
+              .form-group
+                label Ngày sinh
+                input(type="text" value=(customer.birthDate || 'Chưa cập nhật') disabled)
 
-            .profile-grid
-              .form-group
-                label Tên đăng nhập
-                input(type="text" value=user.username disabled)
-              
-              .form-group
-                label Họ tên
-                input(type="text" value=(emp.name || 'Chưa cập nhật') disabled)
-              .form-group
-                label Phòng ban
-                input(type="text" value=(emp.department || 'Chưa cập nhật') disabled)
-              .form-group
-                label Chức vụ
-                input(type="text" value=(emp.role || 'Chưa cập nhật') disabled)
-              .form-group
-                label Số điện thoại
-                - var phone = emp.phone || 'Chưa cập nhật'
-                - var maskedPhone = phone.length > 4 ? phone.slice(0, -4) + '****' : '****'
-                input(type="text" value=maskedPhone disabled)
-            
-            .action-footer
-              a.btn-back(href="/dashboard") Quay lại Trang chủ
+          if account.role === 'customer' && !customer
+            p.alert-error Tài khoản chưa được liên kết với hồ sơ khách hàng. Vui lòng liên hệ cửa hàng.
+
+          if account.role === 'customer'
+            .stats-grid(style="margin-top: 20px;")
+              .stat-card
+                .stat-icon.blue
+                  i.fas.fa-receipt
+                .stat-info
+                  span Đơn hàng của tôi
+                  h2= myOrderCount
+              .stat-card
+                .stat-icon.green
+                  i.fas.fa-shield-halved
+                .stat-info
+                  span Phiếu bảo hành
+                  h2= myWarrantyCount
+
+          if account.role === 'user'
+            .stats-grid(style="margin-top: 20px;")
+              .stat-card
+                .stat-icon.blue
+                  i.fas.fa-address-book
+                .stat-info
+                  span Khách hàng phụ trách
+                  h2= myCustomerCount
+              .stat-card
+                .stat-icon.green
+                  i.fas.fa-filter
+                .stat-info
+                  span Đơn hàng đang xử lý
+                  h2= myOrderCount
+
+          .action-footer
+            if account.role === 'customer' && customer
+              a.btn-back(href="/profile/edit" style="margin-right:10px;") Cập nhật thông tin
+            a.btn-back(href="/dashboard") Quay lại Dashboard
+
+    include _script.pug

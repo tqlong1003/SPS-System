@@ -1,0 +1,146 @@
+doctype html
+html
+  head
+    title Chi tiết đơn hàng - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 Chi tiết đơn hàng #{order.orderCode}
+          p Thông tin đơn hàng, sản phẩm và lịch sử xử lý
+
+
+        .stats-grid
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Mã đơn hàng
+              h2(style="font-size: 1.1rem; word-break: break-word;")= order.orderCode
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Trạng thái
+              h2(style="font-size: 1.1rem;")
+                if order.status === 'confirmed'
+                  span(style="background:#e6f4ea; color:#137333; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Đã xác nhận
+                else
+                  span(style="background:#e8f0fe; color:#1a73e8; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Đang xử lý
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Khách hàng
+              h2(style="font-size: 1.1rem; word-break: break-word;")
+                if customer
+                  a(href=`/customers/detail/${customer._id}` style="color:inherit;")= customer.name
+                else
+                  | Chưa rõ
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Số điện thoại khách
+              h2(style="font-size: 1.1rem; word-break: break-word;")= (customer && customer.phone) || 'Chưa có'
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Người phụ trách
+              h2(style="font-size: 1.1rem; word-break: break-word;")= assignedStaffName
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Ngày tạo
+              h2(style="font-size: 1.1rem;")= order.createdAtText
+
+          if order.confirmedAtText
+            .stat-card
+              .stat-info(style="min-width: 0;")
+                span Ngày xác nhận
+                h2(style="font-size: 1.1rem;")= order.confirmedAtText
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Tổng số lượng
+              h2(style="font-size: 1.1rem;")= totalQuantity
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Ghi chú
+              h2(style="font-size: 1.1rem; word-break: break-word;")= order.note || 'Không có'
+
+        h3(style="color: white; margin: 20px 0 10px;")
+          | Sản phẩm trong đơn
+        .table-container(style="margin-bottom: 24px;")
+          table
+            thead
+              tr
+                th Sản phẩm
+                th Mã SKU
+                th Hãng
+                th Số lượng
+            tbody
+              if items && items.length > 0
+                each i in items
+                  tr
+                    td(style="font-weight:bold;")
+                      if i.productId
+                        a(href=`/products/detail/${i.productId}` style="color:inherit;")= i.productName
+                      else
+                        = i.productName
+                    td= i.sku || '-'
+                    td= i.brand || '-'
+                    td= i.quantity
+              else
+                tr
+                  td(colspan="4", style="text-align:center; padding: 16px;") Đơn hàng chưa có sản phẩm nào
+
+        h3(style="color: white; margin: 20px 0 10px;")
+          | Phiếu bảo hành của đơn này
+        .table-container(style="margin-bottom: 24px;")
+          table
+            thead
+              tr
+                th Mã phiếu
+                th Sản phẩm
+                th Ngày mua
+                th Hết hạn
+                th Trạng thái
+            tbody
+              if warranties && warranties.length > 0
+                each w in warranties
+                  tr
+                    td(style="font-weight:bold;")= w.warrantyCode
+                    td= w.productName
+                    td= w.purchaseDate
+                    td= w.expiryDate || 'Không có'
+                    td= w.effectiveStatus
+              else
+                tr
+                  td(colspan="5", style="text-align:center; padding: 16px;") Đơn hàng chưa có phiếu bảo hành nào
+
+        h3(style="color: white; margin: 20px 0 10px;")
+          | Lịch sử xử lý đơn hàng
+        .table-container(style="margin-bottom: 24px; padding: 16px;")
+          if activities && activities.length > 0
+            each a in activities
+              div(style="padding: 12px 16px; border-bottom: 1px solid #eee;")
+                div(style="display:flex; justify-content: space-between; font-size: 0.85em; color: #888;")
+                  span= a.type
+                  span= a.createdAtText + ' · ' + a.createdByName
+                div(style="margin-top: 4px;")= a.note
+          else
+            div(style="text-align:center; padding: 16px; color: #888;") Chưa có lịch sử nào cho đơn hàng này
+
+        div(style="margin-bottom: 16px; display:flex; gap:8px; flex-wrap:wrap;")
+        a.btn(href="/orders" style="display:inline-block; text-decoration:none;") Quay lại danh sách đơn hàng
+
+    include _script.pug

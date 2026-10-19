@@ -1,66 +1,80 @@
 doctype html
 html
   head
-    title Danh sách tài khoản - HRM System
+    title Danh sách tài khoản - PhoneShop CRM
     link(rel="stylesheet", href="/public/style.css")
     link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+
   body.dashboard-body
-    // Sidebar bên trái
+
     include sidebar.pug
 
     main.main-content
+
       header.topbar
         .search-bar
           i.fas.fa-search
           input(type="text" placeholder="Tìm tài khoản...")
+
         .user-info
-          span.welcome Xin chào, 
-            strong #{user.username}
-          .avatar #{user.username.charAt(0).toUpperCase()}
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
 
       .content-wrapper
+
         .welcome-banner
-          h1 Danh sách tài khoản
-          p Tách riêng danh sách đăng nhập khỏi danh sách hồ sơ nhân viên.
+          h1 👤 Danh sách tài khoản
+          p Quản lý tài khoản quản trị viên, nhân viên và khách hàng
+
+        - var tabBase = 'padding:8px 16px; border-radius:8px; text-decoration:none; font-weight:600;'
+        - var tabOn = tabBase + ' background:var(--primary); color:white;'
+        - var tabOff = tabBase + ' background:#eee; color:#333;'
+
+        div(style="margin-bottom: 15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;")
+          a(href="/accounts" style=(!roleFilter ? tabOn : tabOff)) Tất cả
+          a(href="/accounts?role=admin" style=(roleFilter === 'admin' ? tabOn : tabOff)) Admin
+          a(href="/accounts?role=user" style=(roleFilter === 'user' ? tabOn : tabOff)) Nhân viên
+          a(href="/accounts?role=customer" style=(roleFilter === 'customer' ? tabOn : tabOff)) Khách hàng
+          a.btn-add(href="/register" style="margin-left:auto;")
+            i.fas.fa-plus
+            |  Cấp tài khoản mới
 
         .table-container
           table
             thead
               tr
                 th Tên đăng nhập
-                th Quyền
-                th Nhân viên liên kết
+                th Họ tên
+                th Vai trò
                 th Trạng thái mật khẩu
+                th Hành động
+
             tbody
-              //
               if accounts && accounts.length > 0
                 each account in accounts
                   tr
                     td(style="font-weight: bold;")= account.username
-                    td= account.role
-                    td= account.linkedEmployeeName
+                    td= account.name || 'Chưa cập nhật'
+                    td
+                      if account.role === 'admin'
+                        span(style="background: rgba(239,68,68,0.1); color:#ef4444; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.85em;") Admin
+                      else if account.role === 'user'
+                        span(style="background: rgba(99,102,241,0.1); color: var(--primary); padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.85em;") Nhân viên
+                      else if account.role === 'customer'
+                        span(style="background: #e6f4ea; color:#137333; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.85em;") Khách hàng
+                      else
+                        span Không xác định
                     td= account.passwordStatus
+                    td
+                      a.btn-edit(href=`/accounts/edit/${account._id}`) Sửa
+                      a.btn-delete(
+                        href=`/accounts/delete/${account._id}`
+                        onclick="return confirm('Xác nhận xóa tài khoản này?')"
+                        style="margin-left: 5px;"
+                      ) Xóa
               else
                 tr
-                  td(colspan="4", style="text-align: center; padding: 20px;") Chưa có dữ liệu tài khoản
+                  td(colspan="5" style="text-align: center; padding: 20px;") Chưa có dữ liệu tài khoản
 
-    script.
-      document.querySelectorAll('.menu-item.has-submenu').forEach(item => {
-        item.addEventListener('click', function(e) {
-          e.preventDefault();
-          const menuGroup = this.closest('.menu-group');
-          const submenu = menuGroup.querySelector('.submenu');
-          const toggleIcon = this.querySelector('.toggle-icon');
-          
-          document.querySelectorAll('.submenu').forEach(sub => {
-            if (sub !== submenu) {
-              sub.classList.remove('show');
-              const icon = sub.closest('.menu-group').querySelector('.toggle-icon');
-              if(icon) icon.classList.remove('rotate');
-            }
-          });
-
-          submenu.classList.toggle('show');
-          toggleIcon.classList.toggle('rotate');
-        });
-      });
+    include _script.pug

@@ -1,0 +1,47 @@
+doctype html
+html
+  head
+    title Đơn hàng của tôi - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-receipt
+          span(style="padding: 8px 0; color: var(--text-secondary);") Lịch sử mua hàng của bạn
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 🧾 Đơn hàng của tôi
+          p Các đơn hàng bạn đã đặt tại PhoneShop
+
+        if !customer
+          .card-form
+            p.alert-error Tài khoản của bạn chưa được liên kết với hồ sơ khách hàng. Vui lòng liên hệ cửa hàng để được hỗ trợ.
+        else
+          .table-container
+            table
+              thead
+                tr
+                  th Mã đơn
+                  th Sản phẩm
+                  th Ngày mua
+              tbody
+                if orders && orders.length
+                  each o in orders
+                    tr
+                      td(style="font-weight: bold;")= o.orderCode
+                      td(style="font-size: 0.85em; color: #555;")= o.itemSummary
+                      td= o.createdAtText
+                else
+                  tr
+                    td(colspan="3" style="text-align:center; padding:20px;") Bạn chưa có đơn hàng nào
+
+    include _script.pug

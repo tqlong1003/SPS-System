@@ -1730,7 +1730,11 @@ fastify.get('/orders/edit/:id', { preHandler: staff }, async (req, reply) => {
   if (!order) return reply.status(404).send('❌ Không tìm thấy đơn hàng')
   if (!canActOnRecord(req, order)) return reply.status(403).send('❌ Bạn không có quyền sửa đơn hàng này')
   const customers = await fastify.mongo.db.collection('customers').find().sort({ name: 1 }).toArray()
-  return reply.view('order_edit.pug', { order, customers, user: req.user })
+  // Danh sách nhân viên để đổi người phụ trách (chỉ admin mới thấy/dùng ô này)
+  const staffList = req.user.role === 'admin'
+    ? await fastify.mongo.db.collection('users').find({ role: { $in: STAFF_ROLES } }).sort({ name: 1 }).toArray()
+    : []
+  return reply.view('order_edit.pug', { order, customers, staffList, user: req.user })
 })
 
 // Lưu ý: danh sách sản phẩm trong đơn không chỉnh sửa được ở đây để tránh sai lệch tồn kho.
@@ -1740,8 +1744,24 @@ fastify.post('/orders/edit/:id', { preHandler: staff }, async (req, reply) => {
   if (!existingOrder) return reply.status(404).send('❌ Không tìm thấy đơn hàng')
   if (!canActOnRecord(req, existingOrder)) return reply.status(403).send('❌ Bạn không có quyền sửa đơn hàng này')
 
+  const db = fastify.mongo.db
   const { customerId, note } = req.body
-  const owner = await resolveOwner(fastify.mongo.db, customerId, req.user.id)
+  let owner = await resolveOwner(db, customerId, req.user.id)
+
+  // Đổi người phụ trách: chỉ admin được phép (nhân viên tự đổi sẽ mất quyền với đơn / giao đơn cho người khác).
+  // Server kiểm tra lại người được chọn có phải nhân viên hợp lệ, không tin dữ liệu từ form.
+  let newStaff = null
+  if (req.user.role === 'admin') {
+    const assignedToId = normalizeObjectId(req.body.assignedTo)
+    if (assignedToId) {
+      newStaff = await db.collection('users').findOne({ _id: assignedToId, role: { $in: STAFF_ROLES } })
+      if (!newStaff) return reply.status(400).send('❌ Người phụ trách không hợp lệ')
+      owner = newStaff._id
+    } else if (existingOrder.assignedTo) {
+      owner = existingOrder.assignedTo // không chọn gì -> giữ nguyên người phụ trách hiện tại
+    }
+  }
+
   await fastify.mongo.db.collection('orders').updateOne(
     { _id: new ObjectId(req.params.id) },
     {
@@ -1753,6 +1773,20 @@ fastify.post('/orders/edit/:id', { preHandler: staff }, async (req, reply) => {
       }
     }
   )
+
+  // Ghi lịch sử khi người phụ trách thay đổi
+  if (newStaff && String(existingOrder.assignedTo || '') !== String(newStaff._id)) {
+    const oldStaff = existingOrder.assignedTo
+      ? await db.collection('users').findOne({ _id: existingOrder.assignedTo })
+      : null
+    await logActivity(db, {
+      customerId: normalizeObjectId(customerId) || existingOrder.customerId,
+      orderId: existingOrder._id,
+      type: 'Đơn hàng',
+      note: `Đổi người phụ trách đơn ${existingOrder.orderCode}: ${oldStaff ? (oldStaff.name || oldStaff.username) : 'Chưa phân công'} → ${newStaff.name || newStaff.username}`,
+      userId: req.user.id
+    })
+  }
   reply.redirect('/orders')
 })
 

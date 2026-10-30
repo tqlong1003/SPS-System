@@ -44,6 +44,12 @@ html
               select(name="customerId" required)
                 each c in customers
                   option(value=c._id selected=(order.customerId && order.customerId.toString() === c._id.toString()))= c.name
+            if user.role === 'admin'
+              .form-group
+                label Người phụ trách
+                select(name="assignedTo")
+                  each s in staffList
+                    option(value=s._id selected=(order.assignedTo && order.assignedTo.toString() === s._id.toString()))= s.name || s.username
             .form-group
               label Ghi chú
               input(name="note" value=order.note)

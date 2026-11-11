@@ -760,6 +760,7 @@ fastify.get('/logout', async (req, reply) => {
 //       tự động gán cho nhân viên đó. Không thể cấp tài khoản Nhân viên/Admin.
 //   Với khách hàng: chọn hồ sơ có sẵn (chưa có tài khoản) hoặc để trống để tạo hồ sơ mới.
 
+//Hàm hỗ trợ lấy dữ liệu phục vụ form cấp tài khoản
 async function loadRegisterData(req) {
   const db = fastify.mongo.db
   // userId: null khớp cả hồ sơ chưa có trường userId lẫn userId rỗng => khách chưa có tài khoản

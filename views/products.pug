@@ -30,9 +30,13 @@ html
             | Đang hiển thị các sản phẩm sắp hết hàng (tồn kho ≤ 5).
 
         if user.role === 'admin'
-          a.btn-add(href="/products/add" style="margin-bottom: 15px;")
-            i.fas.fa-plus
-            |  Thêm sản phẩm
+          div(style="margin-bottom: 15px; display:flex; gap:10px; flex-wrap:wrap;")
+            a.btn-add(href="/products/add")
+              i.fas.fa-plus
+              |  Thêm sản phẩm
+            a.btn-add(href="/products/import" style="background:#137333;")
+              i.fas.fa-file-excel
+              |  Nhập từ Excel
 
         .table-container
           table

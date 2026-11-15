@@ -8,6 +8,10 @@ fastify.register(require('@fastify/formbody'))
 
 fastify.register(require('@fastify/cookie'))
 
+// Nhận file upload (dùng cho nhập sản phẩm từ Excel). Giới hạn 5MB / 1 file.
+fastify.register(require('@fastify/multipart'), { limits: { fileSize: 5 * 1024 * 1024, files: 1 } })
+const { parseProductsWorkbook, buildProductTemplate } = require('./product_import')
+
 fastify.register(require('@fastify/jwt'), {
   secret: 'secret123'
 })
@@ -50,7 +54,6 @@ const AUTO_REMINDER_SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000
 // Chỉ có 1 chức vụ duy nhất cho mọi nhân viên (không phân biệt bán hàng, kỹ thuật, thu ngân, ...)
 const EMPLOYEE_POSITION = 'Nhân viên'
 const EMPLOYEE_GENDERS = ['Nam', 'Nữ', 'Khác']
-const EMPLOYEE_STATUSES = ['Đang làm việc', 'Ngưng làm việc']
 
 // --- Vai trò tài khoản (collection users) ---
 const STAFF_ROLES = ['admin', 'user']            // nội bộ cửa hàng
@@ -477,9 +480,6 @@ async function createEmployeeForUserAccount(accountId, { name, phone }) {
     email: '',
     position: EMPLOYEE_POSITION,
     startDate: new Date().toISOString().slice(0, 10),
-    // Trạng thái làm việc tự động theo đăng nhập/đăng xuất: mặc định "Ngưng làm việc",
-    // chuyển thành "Đang làm việc" khi nhân viên đăng nhập.
-    status: 'Ngưng làm việc',
     address: '',
     note: 'Hồ sơ được tạo tự động khi cấp tài khoản đăng nhập - vui lòng bổ sung thêm thông tin.',
     userId: accountId,
@@ -492,28 +492,6 @@ async function createEmployeeForUserAccount(accountId, { name, phone }) {
   )
 
   return employeeResult.insertedId
-}
-
-// ================= TRẠNG THÁI LÀM VIỆC (TỰ ĐỘNG THEO ĐĂNG NHẬP / ĐĂNG XUẤT) =================
-// Nhân viên (role = 'user') đăng nhập -> "Đang làm việc"; đăng xuất -> "Ngưng làm việc".
-// Không còn đếm giờ: hệ thống chỉ lưu trạng thái hiện tại trong employees.status.
-
-// Đặt trạng thái làm việc cho hồ sơ nhân viên liên kết với tài khoản đăng nhập.
-async function setWorkStatusForAccount(accountId, status) {
-  const id = normalizeObjectId(accountId)
-  if (!id) return
-
-  const employeesCol = fastify.mongo.db.collection('employees')
-  const result = await employeesCol.updateOne({ userId: id }, { $set: { status } })
-
-  // Dự phòng: một số hồ sơ cũ có thể thiếu/lệch trường userId -> tra ngược qua employeeId trên tài khoản
-  if (result.matchedCount === 0) {
-    const account = await fastify.mongo.db.collection('users').findOne({ _id: id }, { projection: { employeeId: 1 } })
-    const employeeId = account ? normalizeObjectId(account.employeeId) : null
-    if (employeeId) {
-      await employeesCol.updateOne({ _id: employeeId }, { $set: { status } })
-    }
-  }
 }
 
 // Đồng bộ hồ sơ nhân viên cũ (chức vụ như "Nhân viên bán hàng", "Thu ngân", ...) về chức vụ duy nhất.
@@ -723,11 +701,6 @@ fastify.post('/login', async (req, reply) => {
     name: user.name || user.username
   })
 
-  // Nhân viên đăng nhập -> tự động chuyển trạng thái thành "Đang làm việc"
-  if (user.role === 'user') {
-    await setWorkStatusForAccount(user._id, 'Đang làm việc')
-  }
-
   reply.setCookie('token', token, {
     path: '/',
     httpOnly: true,
@@ -736,17 +709,6 @@ fastify.post('/login', async (req, reply) => {
 })
 
 fastify.get('/logout', async (req, reply) => {
-  // Nhân viên đăng xuất -> tự động chuyển trạng thái thành "Ngưng làm việc"
-  try {
-    if (req.cookies && req.cookies.token) {
-      const decoded = fastify.jwt.verify(req.cookies.token)
-      if (decoded && decoded.role === 'user') {
-        await setWorkStatusForAccount(decoded.id, 'Ngưng làm việc')
-      }
-    }
-  } catch (err) {
-    // token không hợp lệ/hết hạn -> bỏ qua, vẫn tiến hành đăng xuất bình thường
-  }
   reply.clearCookie('token').redirect('/login')
 })
 
@@ -812,6 +774,8 @@ fastify.post('/register', { preHandler: staff }, async (req, reply) => {
   }
 
   if (username.length < 3) return fail('Tên đăng nhập phải có ít nhất 3 ký tự!')
+  if (!phone) return fail('Vui lòng nhập số điện thoại!')
+  if (!/^\+?\d{9,12}$/.test(phone.replace(/[\s.\-]/g, ''))) return fail('Số điện thoại không hợp lệ (chỉ gồm 9-12 chữ số)!')
   if (password.length < 6) return fail('Mật khẩu phải có ít nhất 6 ký tự!')
 
   const existingUser = await db.collection('users').findOne({ username })
@@ -880,6 +844,23 @@ fastify.post('/register', { preHandler: staff }, async (req, reply) => {
     }
     await db.collection('users').updateOne({ _id: accountId }, { $set: { customerId: customerDocId } })
     await syncCustomerBirthdayReminder(customerDocId)
+
+    // Tự tạo lịch nhắc: gửi thông báo thông tin tài khoản cho khách sau khi cấp tài khoản.
+    // Lỗi ở bước này không được làm hỏng việc cấp tài khoản (tài khoản đã tạo xong ở trên).
+    // Lưu ý: chỉ ghi tên đăng nhập vào ghi chú, KHÔNG ghi mật khẩu.
+    try {
+      const owner = await resolveOwner(db, customerDocId, req.user.id)
+      await createAutoReminder(db, {
+        autoKey: `account-created:${accountId}`,
+        customerId: customerDocId,
+        dueDate: toLocalDateString(new Date()),
+        note: `Gửi thông báo thông tin sau khi tạo tài khoản: liên hệ khách hàng ${displayName} (SĐT ${displayPhone}) để gửi tên đăng nhập "${username}" và hướng dẫn đăng nhập / đổi mật khẩu.`,
+        assignedTo: owner,
+        source: 'account-created'
+      })
+    } catch (err) {
+      fastify.log.error(err)
+    }
   }
 
   // Admin xem được danh sách tài khoản; nhân viên không vào được /accounts -> về danh sách khách hàng
@@ -1037,7 +1018,7 @@ fastify.get('/accounts/delete/:id', { preHandler: [auth] }, async (req, reply) =
 
 // ================= QUẢN LÝ NHÂN VIÊN (HỒ SƠ NHÂN SỰ) =================
 // Lưu ý: khác với "users" (tài khoản đăng nhập hệ thống). Đây là hồ sơ nhân sự
-// dùng để kiểm soát số lượng nhân viên và trạng thái làm việc (đang làm / đã nghỉ).
+// dùng để kiểm soát số lượng nhân viên.
 // Chỉ Admin được xem và thao tác.
 
 fastify.get('/employees', { preHandler: [auth, isAdmin] }, async (req, reply) => {
@@ -1047,15 +1028,11 @@ fastify.get('/employees', { preHandler: [auth, isAdmin] }, async (req, reply) =>
     .toArray()
 
   const totalCount = employees.length
-  const activeCount = employees.filter(e => e.status === 'Đang làm việc').length
-  const inactiveCount = totalCount - activeCount
 
   return reply.view('employees.pug', {
     employees,
     user: req.user,
-    totalCount,
-    activeCount,
-    inactiveCount
+    totalCount
   })
 })
 
@@ -1098,8 +1075,7 @@ fastify.get('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, 
   return reply.view('employee_edit.pug', {
     employee,
     user: req.user,
-    genders: EMPLOYEE_GENDERS,
-    statuses: EMPLOYEE_STATUSES
+    genders: EMPLOYEE_GENDERS
   })
 })
 
@@ -1111,7 +1087,6 @@ fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req,
   const phone = fieldValue(body.phone)
   const email = fieldValue(body.email)
   const startDate = fieldValue(body.startDate)
-  const status = fieldValue(body.status)
   const address = fieldValue(body.address)
   const note = fieldValue(body.note)
 
@@ -1131,24 +1106,11 @@ fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req,
         position: EMPLOYEE_POSITION,
         startDate: startDate || '',
         address: address || '',
-        note: note || '',
-        // Trạng thái thường tự động theo đăng nhập/đăng xuất; admin vẫn chỉnh tay được
-        // (VD: nhân viên tắt trình duyệt mà chưa đăng xuất nên bị kẹt "Đang làm việc")
-        status: EMPLOYEE_STATUSES.includes(status) ? status : employee.status
+        note: note || ''
       }
     }
   )
 
-  reply.redirect('/employees')
-})
-
-// Chuyển nhanh trạng thái Đang làm việc / Ngưng làm việc ngay trên danh sách (admin)
-fastify.get('/employees/toggle-status/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
-  const employee = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
-  if (!employee) return reply.status(404).send('❌ Không tìm thấy nhân viên')
-
-  const newStatus = employee.status === 'Đang làm việc' ? 'Ngưng làm việc' : 'Đang làm việc'
-  await fastify.mongo.db.collection('employees').updateOne({ _id: employee._id }, { $set: { status: newStatus } })
   reply.redirect('/employees')
 })
 
@@ -1168,14 +1130,13 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
   const orderScope = scopeFilter(req, 'assignedTo')
 
   const db = fastify.mongo.db
-  const [customerCount, openOrderCount, warranties, productCount, lowStockProducts, employeeCount, activeEmployeeCount] = await Promise.all([
+  const [customerCount, openOrderCount, warranties, productCount, lowStockProducts, employeeCount] = await Promise.all([
     db.collection('customers').countDocuments(customerScope),
     db.collection('orders').countDocuments({ ...orderScope, status: 'open' }),
     db.collection('warranties').find(req.user.role === 'admin' ? {} : { assignedTo: normalizeObjectId(req.user.id) }).toArray(),
     db.collection('products').countDocuments({}),
     db.collection('products').find({ stockQty: { $lte: LOW_STOCK_THRESHOLD } }).sort({ stockQty: 1 }).limit(5).toArray(),
-    db.collection('employees').countDocuments({}),
-    db.collection('employees').countDocuments({ status: 'Đang làm việc' })
+    db.collection('employees').countDocuments({})
   ])
 
   const expiringWarranties = warranties
@@ -1194,8 +1155,7 @@ fastify.get('/dashboard', { preHandler: [auth] }, async (req, reply) => {
     expiringWarranties,
     productCount,
     lowStockProducts,
-    employeeCount,
-    activeEmployeeCount
+    employeeCount
   }
 
   return reply.view('dashboard.pug', { user: req.user, dashboardStats })
@@ -1530,6 +1490,119 @@ fastify.post('/products/edit/:id', { preHandler: [auth, isAdmin] }, async (req, 
     }
   )
   reply.redirect('/products')
+})
+
+// ----- NHẬP SẢN PHẨM TỪ FILE EXCEL (chỉ Admin) -----
+// File Excel không có cột Mã SP: mã luôn được hệ thống tự sinh. Mỗi dòng được so khớp theo Tên + Màu
+// (trùng thì cập nhật, không trùng thì thêm mới). Ô trống ở sản phẩm đã có thì giữ nguyên giá trị cũ.
+const PRODUCT_IMPORT_OPTIONS = { brands: PRODUCT_BRANDS, categories: PRODUCT_CATEGORIES, types: PRODUCT_TYPES }
+const IMPORT_ERRORS_SHOWN = 100
+
+function escapeRegexText(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Sinh mã SP tự động, đảm bảo không trùng mã đã có trong DB
+async function generateUniqueSku(col, seed) {
+  let n = Number(seed)
+  for (;;) {
+    const sku = `SP-${String(n).slice(-6)}`
+    if (!(await col.findOne({ sku }, { projection: { _id: 1 } }))) return sku
+    n++
+  }
+}
+
+fastify.get('/products/import', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  return reply.view('products_import.pug', { user: req.user, result: null, error: null })
+})
+
+fastify.get('/products/import/template', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const buffer = await buildProductTemplate(PRODUCT_IMPORT_OPTIONS)
+  return reply
+    .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    .header('Content-Disposition', 'attachment; filename="mau_nhap_san_pham.xlsx"')
+    .send(Buffer.from(buffer))
+})
+
+fastify.post('/products/import', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const show = extra => reply.view('products_import.pug', { user: req.user, result: null, error: null, ...extra })
+
+  let file
+  try {
+    file = await req.file()
+  } catch (err) {
+    return show({ error: 'Vui lòng chọn file Excel (.xlsx) để tải lên.' })
+  }
+  if (!file) return show({ error: 'Vui lòng chọn file Excel (.xlsx) để tải lên.' })
+  if (!/\.xlsx$/i.test(file.filename || '')) return show({ error: 'Chỉ hỗ trợ file Excel định dạng .xlsx (Lưu dạng: Excel Workbook).' })
+
+  let buffer
+  try {
+    buffer = await file.toBuffer()
+  } catch (err) {
+    return show({ error: 'File quá lớn (tối đa 5MB).' })
+  }
+
+  let parsed
+  try {
+    parsed = await parseProductsWorkbook(buffer, PRODUCT_IMPORT_OPTIONS)
+  } catch (err) {
+    fastify.log.error(err)
+    return show({ error: 'Không đọc được file. Hãy chắc chắn đây là file .xlsx hợp lệ (nên dùng file mẫu).' })
+  }
+  if (parsed.fatal) return show({ error: parsed.fatal })
+
+  const col = fastify.mongo.db.collection('products')
+  const errors = [...parsed.errors]
+  let created = 0
+  let updated = 0
+  let skuSeed = Date.now()
+
+  for (const { rowNumber, data } of parsed.rows) {
+    try {
+      // Tìm sản phẩm đã có theo Tên + Màu (không phân biệt hoa/thường)
+      const nameRegex = new RegExp(`^${escapeRegexText(data.name)}$`, 'i')
+      const colorFilter = data.color
+        ? { color: data.color }
+        : { $or: [{ color: { $exists: false } }, { color: '' }] }
+      const existing = await col.findOne({ name: nameRegex, ...colorFilter })
+
+      if (existing) {
+        await col.updateOne({ _id: existing._id }, { $set: { ...data, updatedAt: new Date() }, $unset: { status: '' } })
+        updated++
+      } else {
+        const sku = await generateUniqueSku(col, skuSeed++)
+        await col.insertOne({
+          brand: 'Khác',
+          category: 'Điện thoại',
+          stockQty: 0,
+          productType: PRODUCT_TYPES[0],
+          warrantyMonths: 12,
+          color: '',
+          ...data,
+          sku,
+          createdAt: new Date()
+        })
+        created++
+      }
+    } catch (err) {
+      fastify.log.error(err)
+      errors.push({ rowNumber, message: 'Lỗi hệ thống khi lưu dòng này' })
+    }
+  }
+
+  errors.sort((a, b) => a.rowNumber - b.rowNumber)
+  return show({
+    result: {
+      fileName: file.filename,
+      totalRows: parsed.totalRows,
+      created,
+      updated,
+      skipped: errors.length,
+      errors: errors.slice(0, IMPORT_ERRORS_SHOWN),
+      moreErrors: Math.max(0, errors.length - IMPORT_ERRORS_SHOWN)
+    }
+  })
 })
 
 fastify.get('/products/delete/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
@@ -2851,11 +2924,6 @@ fastify.post('/change-password', { preHandler: [auth] }, async (req, reply) => {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10)
     await fastify.mongo.db.collection('users').updateOne({ _id: user._id }, { $set: { password: hashedPassword } })
-
-    // Đổi mật khẩu sẽ đăng xuất tài khoản -> nhân viên chuyển về "Ngưng làm việc"
-    if (req.user.role === 'user') {
-      await setWorkStatusForAccount(req.user.id, 'Ngưng làm việc')
-    }
 
     return reply.clearCookie('token').redirect('/login')
   } catch (err) {

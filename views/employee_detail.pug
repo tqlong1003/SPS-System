@@ -59,7 +59,6 @@ html
                 span
                   i.fas.fa-briefcase(style="margin-right:4px;")
                   = employee.position || 'Nhân viên'
-                span.status-badge(class=(employee.status === 'Đang làm việc' ? 'status-active' : 'status-inactive'))= employee.status
 
           .ed-section
             h3.ed-section-title
@@ -81,7 +80,6 @@ html
               +item('Mã nhân viên', employee.employeeCode)
               +item('Chức vụ', employee.position || 'Nhân viên')
               +item('Ngày vào làm', info.startDateText)
-              +item('Trạng thái làm việc', employee.status)
               +item('Hồ sơ tạo lúc', info.createdAtText)
 
           .ed-section

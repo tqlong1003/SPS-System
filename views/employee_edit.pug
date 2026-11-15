@@ -63,12 +63,6 @@ body.dashboard-body
             input(type="date" name="startDate" value=employee.startDate)
 
           .form-group
-            label Trạng thái
-            select(name="status")
-              each s in statuses
-                option(value=s selected=(employee.status === s))= s
-
-          .form-group
             label Địa chỉ
             input(type="text" name="address" value=employee.address)
 

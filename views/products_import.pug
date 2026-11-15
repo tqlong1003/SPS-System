@@ -1,0 +1,95 @@
+doctype html
+html
+  head
+    title Nhập sản phẩm từ Excel - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-file-excel
+          span(style="padding: 8px 0; color: var(--text-secondary);") Nhập danh sách sản phẩm từ file Excel
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .card-form(style="max-width: 750px;")
+          .card-header
+            i.fas.fa-file-excel
+            h2 Nhập sản phẩm từ Excel
+
+          if error
+            p.alert-error
+              i.fas.fa-exclamation-circle(style="margin-right: 5px")
+              | #{error}
+
+          div(style="margin-bottom: 16px; padding: 12px 14px; border-radius: 10px; background: #f0f9ff; color: #1d4ed8; font-size: 0.9rem; line-height: 1.6;")
+            i.fas.fa-circle-info(style="margin-right: 6px;")
+            | Chỉ cần cột "Tên sản phẩm"; Mã SP do hệ thống tự sinh. Sản phẩm trùng Tên + Màu với sản phẩm đã có sẽ được cập nhật (tồn kho là số mới, không cộng dồn); ô để trống giữ nguyên giá trị cũ. Tối đa 2000 dòng, file .xlsx dưới 5MB.
+
+          a.btn-cancel(href="/products/import/template" style="display:inline-block; margin-bottom: 20px; padding: 10px 18px;")
+            i.fas.fa-download(style="margin-right: 6px;")
+            | Tải file mẫu
+
+          form(method="POST" action="/products/import" enctype="multipart/form-data")
+            .form-group
+              label Chọn file Excel (.xlsx)
+              input(type="file" name="file" accept=".xlsx" required)
+
+            .form-actions
+              button.btn-save(type="submit") Nhập sản phẩm
+              a.btn-cancel(href="/products") Quay lại
+
+        if result
+          h3(style="margin: 8px 0 0;") Kết quả nhập: #{result.fileName}
+          .stats-grid
+            .stat-card
+              .stat-icon.blue
+                i.fas.fa-list
+              .stat-info
+                span Số dòng dữ liệu
+                h2= result.totalRows
+            .stat-card
+              .stat-icon.green
+                i.fas.fa-plus
+              .stat-info
+                span Thêm mới
+                h2= result.created
+            .stat-card
+              .stat-icon.orange
+                i.fas.fa-rotate
+              .stat-info
+                span Cập nhật
+                h2= result.updated
+            .stat-card
+              .stat-icon(style="background:#ef4444;")
+                i.fas.fa-triangle-exclamation
+              .stat-info
+                span Bị bỏ qua (lỗi)
+                h2= result.skipped
+
+          if result.errors.length
+            h3(style="margin: 8px 0 0;") Các dòng bị bỏ qua
+            .table-container
+              table
+                thead
+                  tr
+                    th Dòng trong file
+                    th Lý do
+                tbody
+                  each e in result.errors
+                    tr
+                      td(style="font-weight:bold;")= e.rowNumber
+                      td= e.message
+            if result.moreErrors
+              p(style="color:#6b7280;") ...và #{result.moreErrors} dòng lỗi khác chưa hiển thị.
+
+          a.btn-add(href="/products" style="align-self:flex-start;")
+            i.fas.fa-box
+            |  Xem danh sách sản phẩm
+
+    include _script.pug

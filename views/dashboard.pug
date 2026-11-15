@@ -108,18 +108,13 @@ main.main-content
               strong= dashboardStats ? dashboardStats.expiringWarranties.length : 0
 
         // Nhân viên
-        .stat-card.contract-stat-card
+        a.stat-card(href="/employees")
           .stat-icon.green
             i.fas.fa-user-tie
 
           .stat-info
-            a.stat-link(href="/employees")
-              span Tổng số nhân viên
-              h2= dashboardStats ? dashboardStats.employeeCount : 0
-
-            a.contract-alert-link(href="/employees?status=Đang làm việc")
-              | Đang làm việc:
-              strong= dashboardStats ? dashboardStats.activeEmployeeCount : 0
+            span Tổng số nhân viên
+            h2= dashboardStats ? dashboardStats.employeeCount : 0
 
     // ================= DASHBOARD NHÂN VIÊN =================
     if user.role !== 'admin'

@@ -66,7 +66,7 @@ html
 
             .form-group
               label Số điện thoại
-              input(type="text" name="phone" value=f.phone)
+              input(type="tel" name="phone" required pattern="\\+?[0-9 .\\-]{9,15}" title="Nhập 9-12 chữ số" placeholder="VD: 0901234567" value=f.phone)
 
             //- ===== Nhân viên =====
             if isAdminUser

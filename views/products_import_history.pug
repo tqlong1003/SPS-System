@@ -1,0 +1,80 @@
+doctype html
+html
+  head
+    title Lịch sử nhập sản phẩm từ Excel - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-clock-rotate-left
+          span(style="padding: 8px 0; color: var(--text-secondary);") Lịch sử nhập sản phẩm từ Excel
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 🕘 Lịch sử nhập sản phẩm từ Excel
+          p Mỗi lần nhập đều được lưu lại cùng file Excel gốc để tra cứu và đối chiếu tồn kho.
+
+        div(style="margin-bottom: 15px; display:flex; gap:10px; flex-wrap:wrap;")
+          a.btn-add(href="/products/import" style="background:#137333;")
+            i.fas.fa-file-excel
+            |  Nhập từ Excel
+          a.btn-cancel(href="/products" style="display:inline-block; padding: 10px 18px;") Quay lại sản phẩm
+
+        .table-container
+          table
+            thead
+              tr
+                th(style="width: 160px;") Thời gian
+                th(style="width: 160px;") Người nhập
+                th Tên file
+                th(style="width: 110px; text-align:center;") Chế độ
+                th(style="width: 80px; text-align:center;") Số dòng
+                th(style="width: 90px; text-align:center;") Thêm mới
+                th(style="width: 90px; text-align:center;") Cập nhật
+                th(style="width: 90px; text-align:center;") Bỏ qua
+                th(style="width: 190px;") Hành động
+            tbody
+              if imports && imports.length > 0
+                each i in imports
+                  tr
+                    td= i.createdAtText
+                    td= i.importedByName || 'Không rõ'
+                    td
+                      span(style="font-weight:bold;")= i.fileName
+                      br
+                      span(style="color:#6b7280; font-size:0.85rem;")= i.sizeText
+                    td(style="text-align:center;")
+                      if i.mode === 'add'
+                        span(style="padding:4px 10px; border-radius:999px; background:#dcfce7; color:#166534; font-weight:600; font-size:0.85rem;") Cộng dồn
+                      else
+                        span(style="padding:4px 10px; border-radius:999px; background:#ffedd5; color:#c2410c; font-weight:600; font-size:0.85rem;") Ghi đè
+                    td(style="text-align:center;")= i.totalRows
+                    td(style="text-align:center; color:#166534; font-weight:bold;")= i.created
+                    td(style="text-align:center; color:#1d4ed8; font-weight:bold;")= i.updated
+                    td(style="text-align:center; font-weight:bold;")
+                      span(style=i.skipped > 0 ? 'color:#dc2626;' : '')= i.skipped
+                    td
+                      a(href=`/products/import/history/${i.id}` style="margin-right:12px; font-weight:600;")
+                        i.fas.fa-eye
+                        |  Chi tiết
+                      if i.hasFile
+                        a(href=`/products/import/history/${i.id}/download` style="font-weight:600; color:#137333;")
+                          i.fas.fa-download
+                          |  Tải file
+                      else
+                        span(style="color:#9ca3af;") Không có file
+              else
+                tr
+                  td(colspan="9" style="text-align:center; padding: 24px; color:#6b7280;") Chưa có lần nhập nào.
+
+        if imports && imports.length >= historyLimit
+          p(style="color:#6b7280; margin-top:10px;") Chỉ hiển thị #{historyLimit} lần nhập gần nhất.
+
+    include _script.pug

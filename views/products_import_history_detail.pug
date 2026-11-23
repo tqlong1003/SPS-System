@@ -1,0 +1,135 @@
+doctype html
+html
+  head
+    title Chi tiết lần nhập Excel - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-clock-rotate-left
+          span(style="padding: 8px 0; color: var(--text-secondary);") Chi tiết lần nhập Excel
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        div(style="margin-bottom: 15px; display:flex; gap:10px; flex-wrap:wrap;")
+          a.btn-cancel(href="/products/import/history" style="display:inline-block; padding: 10px 18px;")
+            i.fas.fa-arrow-left(style="margin-right: 6px;")
+            | Về lịch sử nhập
+          if imp.hasFile
+            a.btn-add(href=`/products/import/history/${imp.id}/download` style="background:#137333;")
+              i.fas.fa-download
+              |  Tải file Excel gốc
+
+        .card-form(style="max-width: 750px;")
+          .card-header
+            i.fas.fa-file-excel
+            h2= imp.fileName
+          div(style="display:grid; grid-template-columns: 170px 1fr; gap:8px 12px; line-height:1.6;")
+            strong Thời gian nhập
+            span= imp.createdAtText
+            strong Người nhập
+            span= imp.importedByName || 'Không rõ'
+            strong Chế độ tồn kho
+            span
+              if imp.mode === 'add'
+                span(style="padding:3px 10px; border-radius:999px; background:#dcfce7; color:#166534; font-weight:600; font-size:0.85rem;") Cộng dồn
+              else
+                span(style="padding:3px 10px; border-radius:999px; background:#ffedd5; color:#c2410c; font-weight:600; font-size:0.85rem;") Ghi đè
+            strong Dung lượng file
+            span= imp.sizeText
+            strong File gốc
+            span
+              if imp.hasFile
+                | Đã lưu trên máy chủ
+              else
+                | Không có file đính kèm
+
+        .stats-grid
+          .stat-card
+            .stat-icon.blue
+              i.fas.fa-list
+            .stat-info
+              span Số dòng dữ liệu
+              h2= imp.totalRows
+          .stat-card
+            .stat-icon.green
+              i.fas.fa-plus
+            .stat-info
+              span Thêm mới
+              h2= imp.created
+          .stat-card
+            .stat-icon.orange
+              i.fas.fa-rotate
+            .stat-info
+              span Cập nhật
+              h2= imp.updated
+          .stat-card
+            .stat-icon(style="background:#ef4444;")
+              i.fas.fa-triangle-exclamation
+            .stat-info
+              span Bị bỏ qua (lỗi)
+              h2= imp.skipped
+
+        h3(style="margin: 16px 0 8px;") Các sản phẩm đã xử lý (#{imp.changes.length})
+        .table-container
+          table
+            thead
+              tr
+                th(style="width: 80px;") Dòng
+                th(style="width: 110px;") Hành động
+                th(style="width: 110px;") Mã SP
+                th Tên sản phẩm
+                th(style="width: 120px;") Màu
+                th(style="width: 100px; text-align:center;") Tồn trước
+                th(style="width: 100px; text-align:center;") Tồn sau
+                th(style="width: 100px; text-align:center;") Chênh lệch
+            tbody
+              if imp.changes.length > 0
+                each c in imp.changes
+                  - const diff = c.stockAfter - c.stockBefore
+                  tr
+                    td(style="font-weight:bold;")= c.rowNumber
+                    td
+                      if c.action === 'created'
+                        span(style="color:#166534; font-weight:600;") Thêm mới
+                      else
+                        span(style="color:#1d4ed8; font-weight:600;") Cập nhật
+                    td= c.sku
+                    td(style="font-weight:bold;")= c.name
+                    td= c.color || '—'
+                    td(style="text-align:center;")= c.stockBefore
+                    td(style="text-align:center; font-weight:bold;")= c.stockAfter
+                    td(style="text-align:center; font-weight:bold;")
+                      if diff > 0
+                        span(style="color:#166534;") +#{diff}
+                      else if diff < 0
+                        span(style="color:#dc2626;")= diff
+                      else
+                        span(style="color:#9ca3af;") 0
+              else
+                tr
+                  td(colspan="8" style="text-align:center; padding: 20px; color:#6b7280;") Không có sản phẩm nào được xử lý trong lần nhập này.
+
+        if imp.errors.length > 0
+          h3(style="margin: 20px 0 8px;") Các dòng bị bỏ qua
+          .table-container
+            table
+              thead
+                tr
+                  th(style="width: 140px;") Dòng trong file
+                  th Lý do
+              tbody
+                each e in imp.errors
+                  tr
+                    td(style="font-weight:bold;")= e.rowNumber
+                    td= e.message
+          if imp.moreErrors > 0
+            p(style="color:#6b7280;") ...và #{imp.moreErrors} dòng lỗi khác không được lưu chi tiết.
+
+    include _script.pug

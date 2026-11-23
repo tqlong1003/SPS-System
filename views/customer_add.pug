@@ -47,6 +47,12 @@ html
                 option(value="") -- Tự phân công cho tôi --
                 each s in staffList
                   option(value=s._id)= s.name || s.username
+            .form-group
+              label Nhân viên chăm sóc phụ (thay thế khi chuyên quản nghỉ phép / nghỉ việc)
+              select(name="backupStaffId")
+                option(value="") -- Chưa chỉ định --
+                each s in staffList
+                  option(value=s._id)= s.name || s.username
 
             .form-actions
               button.btn-save(type="submit") Lưu khách hàng

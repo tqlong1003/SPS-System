@@ -22,17 +22,30 @@ html
           p= user.role === 'admin' ? 'Toàn bộ lịch hẹn chăm sóc khách hàng trong hệ thống' : 'Lịch hẹn chăm sóc khách hàng bạn đang phụ trách'
 
         div(style="margin-bottom: 15px; display:flex; gap:10px;")
-          a(href="/reminders" style=`padding:8px 16px; border-radius:8px; text-decoration:none; font-weight:600; ${!showDone ? 'background:var(--primary); color:white;' : 'background:#eee; color:#333;'}`) Chờ thực hiện
-          a(href="/reminders?filter=done" style=`padding:8px 16px; border-radius:8px; text-decoration:none; font-weight:600; ${showDone ? 'background:var(--primary); color:white;' : 'background:#eee; color:#333;'}`) Đã hoàn thành
+          a(href=(stage ? `/reminders?stage=${stage}` : '/reminders') style=`padding:8px 16px; border-radius:8px; text-decoration:none; font-weight:600; ${!showDone ? 'background:var(--primary); color:white;' : 'background:#eee; color:#333;'}`) Chờ thực hiện
+          a(href=(stage ? `/reminders?filter=done&stage=${stage}` : '/reminders?filter=done') style=`padding:8px 16px; border-radius:8px; text-decoration:none; font-weight:600; ${showDone ? 'background:var(--primary); color:white;' : 'background:#eee; color:#333;'}`) Đã hoàn thành
+
+        //- Phân loại theo giai đoạn chăm sóc (giữ nguyên tab Chờ thực hiện / Đã hoàn thành đang chọn)
+        div(style="margin-bottom: 15px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;")
+          span(style="color: var(--text-secondary); font-weight:600; margin-right:4px;") Giai đoạn:
+          each t in stageTabs
+            - var href = '/reminders?' + (showDone ? 'filter=done&' : '') + (t.key ? 'stage=' + t.key : '')
+            - var active = (stage || '') === t.key
+            a(href=href style=`padding:6px 14px; border-radius:20px; text-decoration:none; font-weight:600; font-size:0.9em; white-space:nowrap; border:2px solid ${t.color || '#555'}; ${active ? `background:${t.color || '#555'}; color:white;` : `background:${t.bg || '#eee'}; color:${t.color || '#333'};`}`)
+              = t.label
+              span(style="margin-left:6px; opacity:0.85;")= `(${t.count})`
 
         .table-container
           table
             thead
               tr
                 th Ngày hẹn
+                th Giai đoạn
                 th Khách hàng
                 th SĐT
                 th Nội dung
+                if showDone
+                  th Cách chăm sóc
                 th Trạng thái
                 th Hành động
             tbody
@@ -43,6 +56,11 @@ html
                       = r.dueDateText
                       if r.isOverdue
                         span(style="margin-left:6px; font-size:0.8em; color:#c5221f;") (Quá hạn)
+                    td
+                      if r.stage
+                        span(style=`background:${r.stage.bg}; color:${r.stage.color}; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600; white-space:nowrap;`)= r.stage.label
+                      else
+                        span(style="color:#999;") —
                     td(style="font-weight:600;")
                       if r.customer
                         a(href=`/customers/detail/${r.customer._id}` style="color: var(--primary); text-decoration:none;")= r.customer.name
@@ -50,6 +68,12 @@ html
                         | Khách hàng đã bị xóa
                     td= r.customer ? (r.customer.phone || 'Chưa có SĐT') : ''
                     td= r.note || '(không có ghi chú)'
+                    if showDone
+                      td
+                        if r.completionMethod
+                          span(style="font-weight:600;")= r.completionMethod
+                        else
+                          span(style="color:#999;") —
                     td
                       if r.status === 'Đã hoàn thành'
                         span(style="background:#e6f4ea; color:#137333; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600;") Đã hoàn thành
@@ -61,10 +85,17 @@ html
                       if r.customer
                         a.btn-edit(href=`/customers/detail/${r.customer._id}`) Xem KH
                       if r.status !== 'Đã hoàn thành'
-                        a.btn-edit(href=`/reminders/done/${r._id}`, style="background:#137333; margin-left:5px;") Đánh dấu xong
+                        form(method="POST" action=`/reminders/done/${r._id}` style="display:inline-flex; gap:5px; align-items:center; margin-left:5px; vertical-align:middle;")
+                          input(type="hidden" name="back" value='/reminders' + (stage ? '?stage=' + stage : ''))
+                          select(name="method" required title="Hình thức đã chăm sóc (bắt buộc)" style="padding:6px 8px; border:1px solid #d0d5dd; border-radius:6px; font-family:inherit; font-size:0.9rem;")
+                            option(value="" disabled selected) Hình thức...
+                            option(value="Gọi điện") Gọi điện
+                            option(value="SMS/Zalo") SMS/Zalo
+                            option(value="Khác") Khác
+                          button.btn-edit(type="submit" style="background:#137333; border:none; cursor:pointer;") Đánh dấu xong
                       a.btn-delete(href=`/reminders/delete/${r._id}`, onclick="return confirm('Xóa lịch nhắc này?')", style="margin-left: 5px;") Xóa
               else
                 tr
-                  td(colspan="6", style="text-align: center; padding: 20px;")= showDone ? 'Chưa có việc nào đã hoàn thành' : 'Không có việc chăm sóc nào đang chờ - tuyệt vời!'
+                  td(colspan=(showDone ? 8 : 7), style="text-align: center; padding: 20px;")= stage ? 'Không có lịch nào thuộc giai đoạn này' : (showDone ? 'Chưa có việc nào đã hoàn thành' : 'Không có việc chăm sóc nào đang chờ - tuyệt vời!')
 
     include _script.pug

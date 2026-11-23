@@ -1,0 +1,73 @@
+doctype html
+html
+  head
+    title Bàn giao khách hàng - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    mixin handoverBadge(status)
+      - var palette = { "Chờ duyệt": ["#fef7e0", "#b06000"], "Đã duyệt": ["#e6f4ea", "#137333"], "Từ chối": ["#fce8e6", "#c5221f"], "Đã hủy": ["#eceff1", "#546e7a"] }
+      - var colors = palette[status] || palette["Chờ duyệt"]
+      span(style=`background:${colors[0]}; color:${colors[1]}; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600; white-space:nowrap;`)= status
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+
+      .content-wrapper
+        .welcome-banner
+          h1 🔁 Bàn giao khách hàng
+          p= user.role === 'admin' ? 'Duyệt yêu cầu bàn giao khách hàng khi nhân viên chuyên quản nghỉ phép hoặc nghỉ việc' : 'Yêu cầu bàn giao khách hàng của bạn và trạng thái xét duyệt của admin'
+
+        a.btn-add(href="/handovers/new" style="margin-bottom: 15px;")
+          i.fas.fa-plus
+          = user.role === 'admin' ? ' Tạo bàn giao' : ' Gửi yêu cầu bàn giao'
+
+        div(style="margin-bottom: 15px; display:flex; gap:8px; flex-wrap:wrap;")
+          a.btn-edit(href="/handovers" style=`background:${statusFilter ? '#5f6368' : '#1a73e8'};`) Tất cả
+          each s in statuses
+            a.btn-edit(href=`/handovers?status=${encodeURIComponent(s)}` style=`background:${statusFilter === s ? '#1a73e8' : '#5f6368'};`)= `${s} (${counts[s] || 0})`
+
+        .table-container
+          table
+            thead
+              tr
+                th Mã yêu cầu
+                th Nhân viên bàn giao
+                th Lý do
+                th Số KH
+                th Người gửi
+                th Ngày gửi
+                th Trạng thái
+                th Hành động
+            tbody
+              if requests && requests.length > 0
+                each r in requests
+                  tr
+                    td(style="font-weight:bold;")= r.requestCode
+                    td= r.fromName
+                    td
+                      = r.reasonType
+                      if r.leaveFrom
+                        div(style="color:#888; font-size:0.85em;")= `${r.leaveFrom} → ${r.leaveTo}`
+                    td= r.customerCount
+                    td= r.createdByName
+                    td= r.createdAtText
+                    td
+                      +handoverBadge(r.status)
+                    td
+                      a.btn-edit(href=`/handovers/detail/${r._id}`, style=`background:${r.status === 'Chờ duyệt' && user.role === 'admin' ? '#1a73e8' : '#5f6368'};`)= (r.status === 'Chờ duyệt' && user.role === 'admin') ? 'Xem / Duyệt' : 'Xem'
+              else
+                tr
+                  td(colspan="8", style="text-align:center; padding:20px;") Chưa có yêu cầu bàn giao nào
+
+    include _script.pug

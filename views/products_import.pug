@@ -17,7 +17,7 @@ html
           .avatar= (user.name || user.username).charAt(0).toUpperCase()
 
       .content-wrapper
-        .card-form(style="max-width: 750px;")
+        .card-form
           .card-header
             i.fas.fa-file-excel
             h2 Nhập sản phẩm từ Excel
@@ -29,13 +29,29 @@ html
 
           div(style="margin-bottom: 16px; padding: 12px 14px; border-radius: 10px; background: #f0f9ff; color: #1d4ed8; font-size: 0.9rem; line-height: 1.6;")
             i.fas.fa-circle-info(style="margin-right: 6px;")
-            | Chỉ cần cột "Tên sản phẩm"; Mã SP do hệ thống tự sinh. Sản phẩm trùng Tên + Màu với sản phẩm đã có sẽ được cập nhật (tồn kho là số mới, không cộng dồn); ô để trống giữ nguyên giá trị cũ. Tối đa 2000 dòng, file .xlsx dưới 5MB.
+            | Chỉ cần cột "Tên sản phẩm"; Mã SP do hệ thống tự sinh. Sản phẩm trùng Tên + Màu với sản phẩm đã có sẽ được cập nhật; ô để trống giữ nguyên giá trị cũ. Cột Tồn kho được xử lý theo chế độ bạn chọn bên dưới. Tối đa 2000 dòng, file .xlsx dưới 5MB. Mỗi lần nhập đều được lưu vào lịch sử cùng file gốc.
 
           a.btn-cancel(href="/products/import/template" style="display:inline-block; margin-bottom: 20px; padding: 10px 18px;")
             i.fas.fa-download(style="margin-right: 6px;")
             | Tải file mẫu
+          a.btn-cancel(href="/products/import/history" style="display:inline-block; margin-bottom: 20px; margin-left: 10px; padding: 10px 18px;")
+            i.fas.fa-clock-rotate-left(style="margin-right: 6px;")
+            | Lịch sử nhập
 
           form(method="POST" action="/products/import" enctype="multipart/form-data")
+            .form-group
+              label Chế độ nhập tồn kho
+              div(style="display:flex; flex-direction:column; gap:10px;")
+                label(style="display:flex; gap:10px; align-items:flex-start; font-weight:400; margin:0; cursor:pointer;")
+                  input(type="radio" name="mode" value="add" checked=(mode !== 'overwrite') style="width:auto; padding:0; margin-top:4px;")
+                  span
+                    strong Cộng dồn
+              
+                label(style="display:flex; gap:10px; align-items:flex-start; font-weight:400; margin:0; cursor:pointer;")
+                  input(type="radio" name="mode" value="overwrite" checked=(mode === 'overwrite') style="width:auto; padding:0; margin-top:4px;")
+                  span
+                    strong Ghi đè
+                   
             .form-group
               label Chọn file Excel (.xlsx)
               input(type="file" name="file" accept=".xlsx" required)
@@ -46,6 +62,12 @@ html
 
         if result
           h3(style="margin: 8px 0 0;") Kết quả nhập: #{result.fileName}
+          p(style="margin: 4px 0 0; color: var(--text-secondary);")
+            | Chế độ tồn kho: 
+            strong= result.modeText
+            if result.historyId
+              |  · 
+              a(href=`/products/import/history/${result.historyId}` style="font-weight:600;") Xem chi tiết lịch sử lần nhập này
           .stats-grid
             .stat-card
               .stat-icon.blue

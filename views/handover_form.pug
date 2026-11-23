@@ -1,0 +1,114 @@
+doctype html
+html
+  head
+    title Yêu cầu bàn giao - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+
+      .content-wrapper
+        .card-form
+          .card-header
+            i.fas.fa-right-left
+            h2= user.role === 'admin' ? 'Tạo bàn giao khách hàng' : 'Gửi yêu cầu bàn giao khách hàng'
+
+          if error
+            p.alert-error= error
+
+          if user.role === 'admin'
+            form(method="GET" action="/handovers/new" style="margin-bottom: 18px;")
+              .form-group
+                label Nhân viên cần bàn giao
+                select(name="from" onchange="this.form.submit()")
+                  option(value="") -- Chọn nhân viên --
+                  each s in staffList
+                    option(value=s._id selected=(fromStaffId === String(s._id)))= s.name || s.username
+
+          if !fromStaffId
+            p(style="color:#888;") Hãy chọn nhân viên để xem danh sách khách hàng họ đang chuyên quản.
+          else if !candidates.length
+            p(style="color:#888;") Hiện không có khách hàng nào đang do nhân viên này chuyên quản, nên không có gì để bàn giao.
+          else
+            form(method="POST" action="/handovers/new")
+              input(type="hidden" name="fromStaffId" value=fromStaffId)
+
+              .form-group
+                label Lý do bàn giao
+                select#reasonType(name="reasonType" required)
+                  option(value="") -- Chọn lý do --
+                  each r in reasons
+                    option(value=r selected=(form.reasonType === r))= r
+
+              #leaveFields(style="display:none;")
+                .form-row
+                  .form-group
+                    label Nghỉ từ ngày
+                    input(type="date" name="leaveFrom" value=form.leaveFrom)
+                  .form-group
+                    label Dự kiến đi làm lại
+                    input(type="date" name="leaveTo" value=form.leaveTo)
+
+              .form-group
+                label Ghi chú cho admin
+                input(name="note" value=form.note placeholder="VD: Đang xử lý dở 2 đơn bảo hành, lưu ý khách Nguyễn Văn A")
+
+              p(style="margin: 6px 0 10px; color:#888; font-size:0.9em;")
+                | Mỗi khách sẽ được bàn giao cho nhân viên chăm sóc phụ của khách đó. Nếu khách chưa có nhân viên phụ, admin sẽ chọn người nhận khi duyệt.
+
+              .table-container(style="margin-bottom: 16px;")
+                table
+                  thead
+                    tr
+                      th(style="width:40px;")
+                        input#checkAll(type="checkbox" checked)
+                      th Mã KH
+                      th Tên khách hàng
+                      th SĐT
+                      th Nhân viên chăm sóc phụ
+                  tbody
+                    each c in candidates
+                      tr
+                        td
+                          input.cust-check(type="checkbox" name="customerIds" value=c._id checked=!c.locked disabled=c.locked)
+                        td(style="font-weight:bold;")= c.customerCode
+                        td= c.name
+                        td= c.phone || '—'
+                        td
+                          if c.locked
+                            span(style="color:#b06000; font-weight:600;") Đang nằm trong yêu cầu chờ duyệt khác
+                          else if c.backupStaffName
+                            = c.backupStaffName
+                          else
+                            span(style="color:#c5221f; font-weight:600;") Chưa có (admin chọn khi duyệt)
+
+              .form-actions
+                button.btn-save(type="submit")= user.role === 'admin' ? 'Tạo yêu cầu' : 'Gửi cho admin'
+                a.btn-cancel(href="/handovers") Hủy
+
+    include _script.pug
+    script.
+      (function () {
+        var reason = document.getElementById('reasonType')
+        var leave = document.getElementById('leaveFields')
+        if (reason && leave) {
+          var sync = function () { leave.style.display = reason.value === 'Nghỉ phép' ? 'block' : 'none' }
+          reason.addEventListener('change', sync)
+          sync()
+        }
+        var all = document.getElementById('checkAll')
+        if (all) all.addEventListener('change', function () {
+          document.querySelectorAll('.cust-check:not(:disabled)').forEach(function (c) { c.checked = all.checked })
+        })
+      })()

@@ -49,7 +49,7 @@ form {
   background: var(--glass);
   padding: 35px;
   margin: 20px auto;
-  max-width: 450px;
+  max-width: 650px;
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   border: 1px solid rgba(255, 255, 255, 0.3);
@@ -572,7 +572,6 @@ a.stat-card:hover {
     padding: 40px;
     border-radius: 15px;
     box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-    max-width: 600px;
     margin: 20px 0;
 }
 
@@ -901,7 +900,7 @@ a.stat-card:hover {
   padding: 32px;
   border-radius: 15px;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
-  max-width: 640px;
+  max-width: 900px;
   margin: 20px 0;
 }
 

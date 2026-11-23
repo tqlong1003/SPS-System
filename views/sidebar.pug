@@ -105,6 +105,7 @@ nav.sidebar
           if user.role === 'admin'
             a.submenu-item(href="/products/add") Thêm sản phẩm
             a.submenu-item(href="/products/import") Nhập sản phẩm từ Excel
+            a.submenu-item(href="/products/import/history") Lịch sử nhập Excel
           a.submenu-item(href="/products?filter=lowstock") Sản phẩm sắp hết hàng
 
 
@@ -132,6 +133,20 @@ nav.sidebar
           a.submenu-item(href="/orders/add") Tạo đơn hàng
           a.submenu-item(href="/warranties") Phiếu bảo hành
 
+
+      // --- BÀN GIAO KHÁCH HÀNG ---
+      .menu-group
+        a.menu-item.has-submenu(href="#")
+          span
+            i.fas.fa-right-left
+            span Bàn giao KH
+            if user.role === 'admin' && pendingHandoverCount
+              span(style="margin-left:8px; background:#dc2626; color:white; padding:1px 8px; border-radius:10px; font-size:0.75em; font-weight:600;")= pendingHandoverCount
+          i.fas.fa-chevron-down.toggle-icon
+        .submenu
+          a.submenu-item(href="/handovers")= user.role === 'admin' ? 'Yêu cầu bàn giao' : 'Yêu cầu của tôi'
+          a.submenu-item(href="/handovers/new")= user.role === 'admin' ? 'Tạo bàn giao' : 'Gửi yêu cầu bàn giao'
+          a.submenu-item(href="/handovers/history") Lịch sử bàn giao
 
       // --- TÀI KHOẢN ---
       .menu-group

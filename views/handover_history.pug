@@ -1,0 +1,63 @@
+doctype html
+html
+  head
+    title Lịch sử bàn giao - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    main.main-content
+      header.topbar
+        form.search-bar(method="GET" action="/handovers/history")
+          i.fas.fa-search
+          input(type="text" name="keyword" value=keyword || '' placeholder="Tìm theo khách hàng, nhân viên, mã yêu cầu...")
+          button(type="submit" style="border:none; background:var(--primary); color:white; padding:8px 14px; border-radius:8px; cursor:pointer;") Tìm
+          if keyword
+            a(href="/handovers/history" style="color:var(--text-secondary); text-decoration:none; font-weight:600;") Xóa
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 📜 Lịch sử bàn giao
+          p= user.role === 'admin' ? 'Toàn bộ các lần bàn giao khách hàng trong hệ thống' : 'Các lần bàn giao liên quan đến bạn (bạn bàn giao đi hoặc bạn nhận)'
+
+        .table-container
+          table
+            thead
+              tr
+                th Thời gian
+                th Khách hàng
+                th Người bàn giao
+                th Người nhận
+                th Lý do
+                th Admin duyệt
+                th Mã yêu cầu
+            tbody
+              if logs && logs.length > 0
+                each l in logs
+                  tr
+                    td= l.createdAtText
+                    td
+                      a(href=`/customers/detail/${l.customerId}` style="text-decoration:none; font-weight:600;")= l.customerName
+                      div(style="color:#888; font-size:0.85em;")= l.customerCode
+                    td= l.fromStaffName
+                    td(style="font-weight:600;")= l.toStaffName
+                    td
+                      = l.reasonType
+                      if l.leaveFrom
+                        div(style="color:#888; font-size:0.85em;")= `${l.leaveFrom} → ${l.leaveTo}`
+                    td= l.approvedByName
+                    td
+                      if l.requestId
+                        a(href=`/handovers/detail/${l.requestId}` style="text-decoration:none;")= l.requestCode
+                      else
+                        span(style="color:#888;") Xóa tài khoản
+              else
+                tr
+                  td(colspan="7" style="text-align:center; padding:20px;") Chưa có lần bàn giao nào
+
+    include _script.pug

@@ -1,0 +1,151 @@
+doctype html
+html
+  head
+    title Chi tiết bàn giao - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    mixin handoverBadge(status)
+      - var palette = { "Chờ duyệt": ["#fef7e0", "#b06000"], "Đã duyệt": ["#e6f4ea", "#137333"], "Từ chối": ["#fce8e6", "#c5221f"], "Đã hủy": ["#eceff1", "#546e7a"] }
+      - var colors = palette[status] || palette["Chờ duyệt"]
+      span(style=`background:${colors[0]}; color:${colors[1]}; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:600; white-space:nowrap;`)= status
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+
+      .content-wrapper
+        .welcome-banner
+          h1= `Yêu cầu bàn giao ${request.requestCode}`
+          p
+            +handoverBadge(request.status)
+
+        a.btn(href="/handovers" style="display:inline-block; margin-bottom:16px; text-decoration:none;") Quay lại danh sách
+
+        if error
+          p.alert-error= error
+        if success
+          p.alert-success= success
+
+        .stats-grid
+          .stat-card
+            .stat-info(style="min-width:0;")
+              span Nhân viên bàn giao
+              h2(style="font-size:1.1rem; word-break:break-word;")= request.fromName
+          .stat-card
+            .stat-info(style="min-width:0;")
+              span Lý do
+              h2(style="font-size:1.1rem;")= request.reasonType
+          if request.leaveFromText
+            .stat-card
+              .stat-info(style="min-width:0;")
+                span Thời gian nghỉ phép
+                h2(style="font-size:1.1rem;")= `${request.leaveFromText} → ${request.leaveToText}`
+          .stat-card
+            .stat-info(style="min-width:0;")
+              span Gửi bởi
+              h2(style="font-size:1.1rem; word-break:break-word;")= `${request.createdByName} · ${request.createdAtText}`
+          .stat-card
+            .stat-info(style="min-width:0;")
+              span Ghi chú của người gửi
+              h2(style="font-size:1.1rem; word-break:break-word;")= request.note || '—'
+          if request.reviewedAtText
+            .stat-card
+              .stat-info(style="min-width:0;")
+                span= request.status === 'Đã hủy' ? 'Hủy lúc' : 'Xử lý bởi'
+                h2(style="font-size:1.1rem; word-break:break-word;")= `${request.reviewedByName || '—'} · ${request.reviewedAtText}`
+          if request.reviewNote
+            .stat-card
+              .stat-info(style="min-width:0;")
+                span= request.status === 'Từ chối' ? 'Lý do từ chối' : 'Ghi chú của admin'
+                h2(style="font-size:1.1rem; word-break:break-word;")= request.reviewNote
+
+        h3.customer-section-title Khách hàng trong yêu cầu
+        .table-container(style="margin-bottom:24px;")
+          table
+            thead
+              tr
+                th Mã KH
+                th Tên khách hàng
+                th Chuyên quản hiện tại
+                th Người sẽ nhận
+                th Ghi chú
+            tbody
+              each r in rows
+                tr
+                  if r.missing
+                    td(colspan="5" style="color:#888;") Khách hàng đã bị xóa khỏi hệ thống
+                  else
+                    td(style="font-weight:bold;")= r.customerCode
+                    td
+                      a(href=`/customers/detail/${r._id}` style="text-decoration:none; font-weight:600;")= r.name
+                    td= r.currentOwnerName
+                    td
+                      if r.hasTarget
+                        = r.targetName
+                      else
+                        span(style="color:#c5221f; font-weight:600;") Chưa có nhân viên phụ
+                    td
+                      if isPending && r.stale
+                        span(style="color:#b06000;") Đã đổi chuyên quản, sẽ bị bỏ qua
+
+        if logs && logs.length
+          h3.customer-section-title Kết quả bàn giao
+          .table-container(style="margin-bottom:24px;")
+            table
+              thead
+                tr
+                  th Khách hàng
+                  th Từ
+                  th Sang
+                  th Thời gian
+              tbody
+                each l in logs
+                  tr
+                    td= `${l.customerCode} · ${l.customerName}`
+                    td= l.fromStaffName
+                    td(style="font-weight:600;")= l.toStaffName
+                    td= l.createdAtText
+          if request.skippedCount
+            p(style="color:#b06000;")= `Bỏ qua ${request.skippedCount} khách (đã đổi người phụ trách hoặc không còn tồn tại).`
+
+        if canReview
+          h3.customer-section-title Xét duyệt
+          .table-container(style="margin-bottom:24px; padding:16px;")
+            form(method="POST" action=`/handovers/${request._id}/approve`)
+              if needsFallback
+                .form-group
+                  label Người nhận thay thế (cho khách chưa có nhân viên phụ)
+                  select(name="fallbackStaffId" required)
+                    option(value="") -- Chọn nhân viên --
+                    each s in fallbackList
+                      option(value=s._id)= s.name || s.username
+              .form-group
+                label Ghi chú của admin (không bắt buộc)
+                input(name="reviewNote" placeholder="VD: Đồng ý, bàn giao từ thứ Hai")
+              p(style="color:#888; font-size:0.9em;")
+                = request.reasonType === 'Nghỉ phép' ? 'Duyệt: nhân viên phụ thành chuyên quản; người đi nghỉ chuyển thành nhân viên phụ. Đơn hàng, bảo hành, khiếu nại và lịch nhắc chưa xong đi theo người mới.' : 'Duyệt: nhân viên phụ thành chuyên quản, người nghỉ việc rời khỏi hồ sơ khách (vị trí phụ để trống). Đơn hàng, bảo hành, khiếu nại và lịch nhắc chưa xong đi theo người mới.'
+              .form-actions
+                button.btn-save(type="submit" onclick="return confirm('Xác nhận bàn giao các khách hàng này?')") Duyệt bàn giao
+
+            form(method="POST" action=`/handovers/${request._id}/reject` style="margin-top:18px; border-top:1px solid #eee; padding-top:14px;")
+              .form-group
+                label Lý do từ chối
+                input(name="reviewNote" placeholder="Bắt buộc khi từ chối")
+              .form-actions
+                button.btn-delete(type="submit" style="border:none; cursor:pointer; padding:10px 18px; border-radius:8px;") Từ chối
+
+        if canCancel
+          form(method="POST" action=`/handovers/${request._id}/cancel` onsubmit="return confirm('Hủy yêu cầu này?')")
+            button.btn-delete(type="submit" style="border:none; cursor:pointer; padding:10px 18px; border-radius:8px;") Hủy yêu cầu
+
+    include _script.pug

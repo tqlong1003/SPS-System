@@ -29,6 +29,11 @@ html
           .avatar= (user.name || user.username).charAt(0).toUpperCase()
 
       .content-wrapper
+        if afterHoursNotice
+          div(style="background:#fff8e1; border:1px solid #f5c542; border-left:5px solid #f5a623; color:#7a5200; padding:14px 18px; border-radius:8px; margin-bottom:16px; line-height:1.5;")
+            i.fas.fa-clock
+            strong  Thông báo tự động
+            div(style="margin-top:6px;")= afterHoursNotice
         .welcome-banner
           h1 Khiếu nại #{complaint.complaintCode}
           p= complaint.title

@@ -23,10 +23,14 @@ html
 
         a.btn(href="/customers" style="display: inline-block; margin-bottom: 16px; text-decoration: none;")
           | Quay lại danh sách khách hàng
-        if !customer.userId
+        if !customer.userId && !isBackupViewer
           a.btn(href=`/register?customerId=${customer._id}` style="display: inline-block; margin: 0 0 16px 8px; text-decoration: none; background:#137333; color:white;")
             i.fas.fa-user-plus(style="margin-right: 6px;")
             | Cấp tài khoản đăng nhập
+
+        if isBackupViewer
+          div(style="margin-bottom: 16px; padding: 14px 16px; border-radius: 10px; background: #fff7ed; color: #c2410c; font-weight: 600;")
+            | Bạn là nhân viên chăm sóc phụ của khách hàng này: chỉ được xem. Khi admin duyệt bàn giao, bạn sẽ trở thành người chuyên quản.
 
         .stats-grid
           .stat-card
@@ -56,8 +60,13 @@ html
 
           .stat-card
             .stat-info(style="min-width: 0;")
-              span Người phụ trách
+              span Nhân viên chuyên quản
               h2(style="font-size: 1.1rem; word-break: break-word;")= assignedStaffName
+
+          .stat-card
+            .stat-info(style="min-width: 0;")
+              span Nhân viên chăm sóc phụ
+              h2(style="font-size: 1.1rem; word-break: break-word;")= backupStaffName
 
           .stat-card
             .stat-info(style="min-width: 0;")
@@ -127,19 +136,31 @@ html
                   span(style=`font-weight:700; margin-right:8px; color:${r.status === 'Đã hoàn thành' ? '#137333' : (r.isOverdue ? '#c5221f' : '#1a73e8')};`)= r.dueDateText
                   span(style="font-size:0.85em; color:#888;")= r.status === 'Đã hoàn thành' ? '(Đã hoàn thành)' : (r.isOverdue ? '(Quá hạn)' : '(Chờ thực hiện)')
                   div= r.note
-                if r.status !== 'Đã hoàn thành'
-                  a.btn-edit(href=`/reminders/done/${r._id}` style="white-space:nowrap;") Đánh dấu xong
+                  if r.status === 'Đã hoàn thành' && r.completionMethod
+                    div(style="font-size:0.85em; color:#137333; margin-top:2px;")
+                      | Đã chăm sóc bằng: 
+                      strong= r.completionMethod
+                if r.status !== 'Đã hoàn thành' && !isBackupViewer
+                  form(method="POST" action=`/reminders/done/${r._id}` style="display:inline-flex; gap:5px; align-items:center; white-space:nowrap;")
+                    input(type="hidden" name="back" value=`/customers/detail/${customer._id}`)
+                    select(name="method" required title="Hình thức đã chăm sóc (bắt buộc)" style="padding:6px 8px; border:1px solid #d0d5dd; border-radius:6px; font-family:inherit; font-size:0.9rem;")
+                      option(value="" disabled selected) Hình thức...
+                      option(value="Gọi điện") Gọi điện
+                      option(value="SMS/Zalo") SMS/Zalo
+                      option(value="Khác") Khác
+                    button.btn-edit(type="submit" style="border:none; cursor:pointer;") Đánh dấu xong
           else
             div(style="text-align:center; padding: 8px; color: #888;") Chưa có lịch nhắc chăm sóc nào cho khách hàng này
 
-          form(method="POST" action=`/customers/${customer._id}/reminders` style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;")
-            .form-group(style="margin:0;")
-              label Ngày hẹn chăm sóc
-              input(type="date" name="dueDate" required)
-            .form-group(style="margin:0; flex:1; min-width:220px;")
-              label Nội dung cần làm
-              input(name="note" placeholder="VD: Gọi hỏi thăm sau 1 tháng sử dụng")
-            button.btn-save(type="submit" style="height:42px;") Đặt lịch nhắc
+          if !isBackupViewer
+            form(method="POST" action=`/customers/${customer._id}/reminders` style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;")
+              .form-group(style="margin:0;")
+                label Ngày hẹn chăm sóc
+                input(type="date" name="dueDate" required)
+              .form-group(style="margin:0; flex:1; min-width:220px;")
+                label Nội dung cần làm
+                input(name="note" placeholder="VD: Gọi hỏi thăm sau 1 tháng sử dụng")
+              button.btn-save(type="submit" style="height:42px;") Đặt lịch nhắc
 
         h3.customer-section-title
           | Lịch sử chăm sóc khách hàng
@@ -154,15 +175,42 @@ html
           else
             div(style="text-align:center; padding: 16px; color: #888;") Chưa có lịch sử chăm sóc nào cho khách hàng này
 
-          form(method="POST" action=`/customers/${customer._id}/activities` style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; border-top: 1px solid #eee; padding-top: 14px;")
-            .form-group(style="margin:0;")
-              label Hình thức
-              select(name="type")
-                each t in activityTypes
-                  option(value=t)= t
-            .form-group(style="margin:0; flex:1; min-width:220px;")
-              label Nội dung đã trao đổi với khách
-              input(name="note" placeholder="VD: Đã gọi tư vấn, khách hẹn tuần sau ghé cửa hàng" required)
-            button.btn-save(type="submit" style="height:42px;") Ghi lại
+          if !isBackupViewer
+            form(method="POST" action=`/customers/${customer._id}/activities` style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; border-top: 1px solid #eee; padding-top: 14px;")
+              .form-group(style="margin:0;")
+                label Hình thức
+                select(name="type")
+                  each t in activityTypes
+                    option(value=t)= t
+              .form-group(style="margin:0; flex:1; min-width:220px;")
+                label Nội dung đã trao đổi với khách
+                input(name="note" placeholder="VD: Đã gọi tư vấn, khách hẹn tuần sau ghé cửa hàng" required)
+              button.btn-save(type="submit" style="height:42px;") Ghi lại
+
+        h3.customer-section-title
+          | Lịch sử bàn giao khách hàng
+        .table-container(style="margin-bottom: 24px;")
+          table
+            thead
+              tr
+                th Ngày
+                th Người bàn giao
+                th Người nhận
+                th Lý do
+                th Admin duyệt
+                th Ghi chú
+            tbody
+              if handoverLogs && handoverLogs.length > 0
+                each l in handoverLogs
+                  tr
+                    td= l.createdAtText
+                    td= l.fromStaffName
+                    td(style="font-weight:600;")= l.toStaffName
+                    td= l.reasonType
+                    td= l.approvedByName
+                    td= l.note || '—'
+              else
+                tr
+                  td(colspan="6", style="text-align:center; padding: 16px;") Khách hàng chưa từng được bàn giao
 
     include _script.pug

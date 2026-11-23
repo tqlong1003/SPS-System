@@ -173,7 +173,7 @@ async function buildProductTemplate({ brands, categories, types }) {
     ['Hãng', `${brands.join(', ')} (không khớp sẽ lưu là "Khác")`],
     ['Danh mục', categories.join(', ')],
     ['Loại', types.join(', ')],
-    ['Tồn kho', 'Số nguyên từ 0. Là số tồn MỚI (thay thế số cũ), không cộng dồn.'],
+    ['Tồn kho', 'Số nguyên từ 0. Là số lượng NHẬP THÊM: với sản phẩm đã có, hệ thống CỘNG DỒN vào tồn kho hiện tại (VD: đang 2, nhập 5 -> thành 7).'],
     ['Bảo hành (tháng)', 'Số nguyên từ 0. Để trống: sản phẩm mới mặc định 12 tháng.'],
     ['Ô để trống', 'Với sản phẩm đã có, ô trống sẽ giữ nguyên giá trị cũ (không xóa dữ liệu).']
   ]

@@ -91,9 +91,12 @@ html
                     td= r.currentOwnerName
                     td
                       if r.hasTarget
-                        = r.targetName
+                        if r.toPool
+                          span(style="color:#b06000; font-weight:600;")= r.targetName
+                        else
+                          = r.targetName
                       else
-                        span(style="color:#c5221f; font-weight:600;") Chưa có nhân viên phụ
+                        span(style="color:#c5221f; font-weight:600;")= isReturn ? 'Không còn chủ cũ hợp lệ' : 'Chưa có nhân viên phụ'
                     td
                       if isPending && r.stale
                         span(style="color:#b06000;") Đã đổi chuyên quản, sẽ bị bỏ qua
@@ -122,20 +125,22 @@ html
           h3.customer-section-title Xét duyệt
           .table-container(style="margin-bottom:24px; padding:16px;")
             form(method="POST" action=`/handovers/${request._id}/approve`)
-              if needsFallback
-                .form-group
-                  label Người nhận thay thế (cho khách chưa có nhân viên phụ)
-                  select(name="fallbackStaffId" required)
-                    option(value="") -- Chọn nhân viên --
-                    each s in fallbackList
-                      option(value=s._id)= s.name || s.username
+              if missingTarget
+                p.alert-error
+                  = isReturn ? 'Có khách không còn chủ cũ hợp lệ để trả về. Hãy từ chối yêu cầu này.' : 'Nhân viên bàn giao chưa có nhân viên chăm sóc phụ. Hãy chỉ định ở mục Tài khoản (Sửa tài khoản) rồi quay lại duyệt.'
+              if poolCount
+                p(style="background:#fef7e0; color:#b06000; padding:10px 12px; border-radius:8px; font-weight:600;")
+                  i.fas.fa-inbox(style="margin-right:6px;")
+                  = `${poolCount} khách sẽ chuyển về "Khách chờ phân công" vì nhân viên chăm sóc phụ đang vắng hoặc chưa được chỉ định. Bạn sẽ phân cho nhân viên khác ở mục Bàn giao KH > Khách chờ phân công.`
+              if !isReturn
+                p(style="color:#888; font-size:0.9em;") Khi duyệt, nhân viên bàn giao sẽ được chuyển sang trạng thái tạm vắng.
               .form-group
                 label Ghi chú của admin (không bắt buộc)
                 input(name="reviewNote" placeholder="VD: Đồng ý, bàn giao từ thứ Hai")
               p(style="color:#888; font-size:0.9em;")
-                = request.reasonType === 'Nghỉ phép' ? 'Duyệt: nhân viên phụ thành chuyên quản; người đi nghỉ chuyển thành nhân viên phụ. Đơn hàng, bảo hành, khiếu nại và lịch nhắc chưa xong đi theo người mới.' : 'Duyệt: nhân viên phụ thành chuyên quản, người nghỉ việc rời khỏi hồ sơ khách (vị trí phụ để trống). Đơn hàng, bảo hành, khiếu nại và lịch nhắc chưa xong đi theo người mới.'
+                = request.reasonType === 'Nghỉ phép' ? 'Duyệt: khách chuyển sang nhân viên chăm sóc phụ của người đi nghỉ; hệ thống ghi nhớ chủ cũ để trả lại khi đi làm lại (tạo yêu cầu "Đi làm lại"). Đơn hàng, bảo hành, khiếu nại và lịch nhắc chưa xong đi theo người mới.' : (request.reasonType === 'Đi làm lại' ? 'Duyệt: khách được trả về chủ cũ. Đơn hàng, bảo hành, khiếu nại và lịch nhắc chưa xong đi theo người nhận.' : 'Duyệt: khách chuyển sang nhân viên chăm sóc phụ của người nghỉ việc, người nghỉ việc rời khỏi hồ sơ khách. Đơn hàng, bảo hành, khiếu nại và lịch nhắc chưa xong đi theo người mới.')
               .form-actions
-                button.btn-save(type="submit" onclick="return confirm('Xác nhận bàn giao các khách hàng này?')") Duyệt bàn giao
+                button.btn-save(type="submit" disabled=missingTarget onclick="return confirm('Xác nhận bàn giao các khách hàng này?')") Duyệt bàn giao
 
             form(method="POST" action=`/handovers/${request._id}/reject` style="margin-top:18px; border-top:1px solid #eee; padding-top:14px;")
               .form-group

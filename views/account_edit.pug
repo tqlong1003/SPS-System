@@ -35,6 +35,19 @@ html
               label Vai trò (không thể thay đổi)
               input(type="text" value=(roleLabels[account.role] || 'Không xác định') disabled)
 
+            if canSetBackup
+              .form-group
+                label Nhân viên chăm sóc phụ (thay thế cho TẤT CẢ khách của tài khoản này)
+                select(name="backupStaffId")
+                  option(value="") -- Chưa chỉ định --
+                  each s in staffList
+                    option(value=s._id selected=(account.backupStaffId && account.backupStaffId.toString() === s._id.toString()))= s.name || s.username
+                small(style="color:#888; display:block; margin-top:6px;") Một người có thể là phụ của nhiều nhân viên.
+              if mutualWarning
+                p(style="padding:10px 12px; border-radius:8px; background:#fef7e0; color:#b06000; font-size:0.9rem; margin:0 0 16px;")
+                  i.fas.fa-triangle-exclamation(style="margin-right:6px;")
+                  = mutualWarning
+
             if account.role === 'customer'
               p(style="color:#6b7280; font-size:0.9rem; margin: 0 0 16px;")
                 i.fas.fa-link(style="margin-right:6px;")

@@ -27,7 +27,7 @@ html
         //- Nhân viên chỉ cấp được tài khoản khách hàng
         - var isCustomerRole = !isAdminUser || f.role === 'customer' || (!!prefillCustomerId && !f.role)
 
-        .card-form(style="margin: 0 auto;")
+        .card-form
 
           .card-header
             i.fas.fa-user-plus
@@ -74,6 +74,15 @@ html
                 .form-group
                   label Chức vụ
                   input(type="text" value="Nhân viên" readonly)
+                .form-group
+                  label Email
+                  input.staff-req(type="email" name="staffEmail" placeholder="VD: nhanvien@congty.com" value=f.staffEmail)
+                .form-group
+                  label Ngày sinh
+                  input.staff-req(type="date" name="staffBirthDate" value=f.staffBirthDate)
+                .form-group
+                  label Nơi ở
+                  input.staff-req(type="text" name="staffAddress" placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" value=f.staffAddress)
 
             //- ===== Khách hàng =====
             #customerBox(style=isCustomerRole ? '' : 'display:none;')
@@ -125,6 +134,8 @@ html
 
         function sync() {
           var isCustomer = role.value === 'customer'
+          // Ô thông tin nhân viên chỉ bắt buộc khi đang cấp tài khoản nhân viên (ô bị ẩn mà required thì trình duyệt không cho gửi form)
+          document.querySelectorAll('.staff-req').forEach(function (el) { el.required = !isCustomer })
           if (staffBox) staffBox.style.display = isCustomer ? 'none' : ''
           customerBox.style.display = isCustomer ? '' : 'none'
           // Chọn hồ sơ có sẵn thì không cần nhập thông tin hồ sơ mới

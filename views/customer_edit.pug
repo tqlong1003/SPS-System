@@ -53,12 +53,6 @@ html
                   a(href="/handovers/new") gửi yêu cầu bàn giao
                   |  để admin xác nhận.
             .form-group
-              label Nhân viên chăm sóc phụ
-              select(name="backupStaffId")
-                option(value="") -- Chưa chỉ định --
-                each s in staffList
-                  option(value=s._id selected=(customer.backupStaffId && customer.backupStaffId.toString() === s._id.toString()))= s.name || s.username
-            .form-group
               label Ghi chú
               input(name="note" value=customer.note)
 

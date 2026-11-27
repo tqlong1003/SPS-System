@@ -1,0 +1,133 @@
+doctype html
+html
+  head
+    title Khách chờ phân công - PhoneShop CRM
+    link(rel="stylesheet", href="/public/style.css")
+    link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css")
+  body.dashboard-body
+    include sidebar.pug
+
+    mixin customerRows(list, showHolder)
+      .table-container(style="margin-bottom:12px;")
+        table
+          thead
+            tr
+              th Mã KH
+              th Tên khách hàng
+              th SĐT
+              if showHolder
+                th Đang ở
+          tbody
+            each c in list
+              tr
+                td(style="font-weight:bold;")= c.customerCode
+                td
+                  a(href=`/customers/detail/${c._id}` style="text-decoration:none; font-weight:600;")= c.name
+                td= c.phone || '—'
+                if showHolder
+                  td= c.holderName
+
+    main.main-content
+      header.topbar
+        .search-bar
+          i.fas.fa-search
+          input(type="text" placeholder="Tìm kiếm...")
+        .user-info
+          span.welcome Xin chào,
+            strong= user.name || user.username
+          .avatar= (user.name || user.username).charAt(0).toUpperCase()
+
+      .content-wrapper
+        .welcome-banner
+          h1 📥 Khách chờ phân công
+          p Khách mà cả nhân viên chuyên quản lẫn nhân viên chăm sóc phụ đều đang vắng sẽ về đây để admin phân cho người khác. Khi nhân viên đi làm lại, hệ thống báo ở đây để admin xác nhận.
+
+        if error
+          p.alert-error= error
+        if success
+          p.alert-success= success
+
+        if !total
+          p(style="color:#888; padding:20px 0;") Hiện không có khách nào cần admin xử lý.
+
+        //- 1. Chủ cũ đã đi làm lại
+        if returnGroups.length
+          h3.customer-section-title Nhân viên đã đi làm lại: xác nhận trả khách
+          each g in returnGroups
+            .table-container(style="margin-bottom:18px; padding:16px;")
+              p(style="margin:0 0 10px;")
+                strong= g.ownerName
+                = ` đã đi làm lại. ${g.customers.length} khách đang ở người giữ hộ hoặc trong kho chờ phân công.`
+              +customerRows(g.customers, true)
+              form(method="POST" action=`/handovers/pool/return/${g.ownerId}`)
+                .form-actions
+                  button.btn-save(type="submit" data-msg=`Trả ${g.customers.length} khách về ${g.ownerName}?` onclick="return confirm(this.dataset.msg)")= `Trả ${g.customers.length} khách về ${g.ownerName}`
+
+        //- 2. Người phụ đã đi làm lại
+        if backupGroups.length
+          h3.customer-section-title Nhân viên chăm sóc phụ đã đi làm lại
+          each g in backupGroups
+            .table-container(style="margin-bottom:18px; padding:16px;")
+              p(style="margin:0 0 10px;")
+                strong= g.backupName
+                | , người chăm sóc phụ của 
+                strong= g.ownerName
+                = ` đã đi làm lại, còn ${g.ownerName} vẫn tạm vắng. ${g.customers.length} khách của ${g.ownerName} đang ở người giữ hộ khác hoặc trong kho chờ phân công.`
+              +customerRows(g.customers, true)
+              form(method="POST" action=`/handovers/pool/backup/${g.ownerId}`)
+                .form-actions
+                  button.btn-save(type="submit" data-msg=`Giao ${g.customers.length} khách cho ${g.backupName} giữ hộ?` onclick="return confirm(this.dataset.msg)")= `Giao cho ${g.backupName} giữ hộ`
+
+        //- 3. Kho chờ phân công
+        if poolList.length
+          h3.customer-section-title= `Khách chờ admin phân công (${poolList.length})`
+          form(method="POST" action="/handovers/pool/assign")
+            .table-container(style="margin-bottom:16px;")
+              table
+                thead
+                  tr
+                    th(style="width:40px;")
+                      input#checkAll(type="checkbox")
+                    th Mã KH
+                    th Tên khách hàng
+                    th SĐT
+                    th Chủ cũ
+                    th Lý do
+                    th Về kho lúc
+                tbody
+                  each c in poolList
+                    tr
+                      td
+                        input.cust-check(type="checkbox" name="customerIds" value=c._id)
+                      td(style="font-weight:bold;")= c.customerCode
+                      td
+                        a(href=`/customers/detail/${c._id}` style="text-decoration:none; font-weight:600;")= c.name
+                      td= c.phone || '—'
+                      td= c.ownerName || '—'
+                      td= c.reason || '—'
+                      td= c.sinceText || '—'
+            .table-container(style="padding:16px; margin-bottom:24px;")
+              .form-row
+                .form-group
+                  label Giao cho nhân viên (đang làm việc)
+                  select(name="toStaffId" required)
+                    option(value="") -- Chọn nhân viên --
+                    each s in availableStaff
+                      option(value=s._id)= s.role === 'admin' ? `${s.name} (Admin)` : s.name
+                .form-group
+                  label Hình thức
+                  select(name="mode")
+                    option(value="temporary") Tạm thời: trả về chủ cũ khi họ đi làm lại
+                    option(value="permanent") Vĩnh viễn: không trả về chủ cũ
+              .form-actions
+                button.btn-save(type="submit" onclick="return confirm('Xác nhận phân công các khách đã chọn?')") Phân công
+              p(style="color:#888; font-size:0.9em; margin-top:10px;") Đơn hàng, bảo hành, khiếu nại và lịch nhắc chưa xong của các khách này đi theo người nhận mới.
+
+    include _script.pug
+    script.
+      var all = document.getElementById('checkAll')
+      if (all) {
+        all.addEventListener('change', function () {
+          document.querySelectorAll('.cust-check').forEach(function (c) { c.checked = all.checked })
+        })
+      }

@@ -35,8 +35,10 @@ body.dashboard-body
             input(type="text" name="name" value=employee.name required)
 
           .form-group
-            label Năm sinh
-            input(type="number" name="birthYear" value=employee.birthYear min="1950" max="2015")
+            label Ngày sinh
+            input(type="date" name="birthDate" value=employee.birthDate)
+            if !employee.birthDate && employee.birthYear
+              small(style="color:#888;")= `Hồ sơ cũ chỉ có năm sinh ${employee.birthYear}. Chọn ngày sinh đầy đủ để cập nhật.`
 
           .form-group
             label Giới tính

@@ -44,7 +44,7 @@ body.dashboard-body
             tr
               th Mã NV
               th Họ tên
-              th Năm sinh
+              th Ngày sinh
               th Giới tính
               th Số điện thoại
               th Chức vụ
@@ -59,7 +59,7 @@ body.dashboard-body
                     if e.userId
                       i.fas.fa-link(style="margin-left:6px; color:#6366f1;" title="Đã có tài khoản đăng nhập liên kết")
                   td= e.name
-                  td= e.birthYear || 'Chưa cập nhật'
+                  td= e.birthText || 'Chưa cập nhật'
                   td= e.gender || 'Chưa cập nhật'
                   td= e.phone || 'Chưa cập nhật'
                   td= e.position || 'Nhân viên'

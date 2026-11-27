@@ -27,12 +27,22 @@ html
           h1 👤 Danh sách tài khoản
           p Quản lý tài khoản quản trị viên, nhân viên và khách hàng
 
+        - var missing = noBackupStaff || []
+        if user.role === 'admin' && missing.length
+          .no-backup-alert(style="margin-bottom:18px; padding:14px 18px; border-radius:12px; background:#fce8e6; border:2px solid #d93025; color:#a50e0e;")
+            div(style="font-weight:700; font-size:1.05em; margin-bottom:6px;")
+              i.fas.fa-triangle-exclamation(style="margin-right:8px;")
+              = `Cảnh báo: ${missing.length} nhân viên chưa có nhân viên chăm sóc phụ`
+            div(style="margin-bottom:8px;") Khi những nhân viên này nghỉ, khách hàng sẽ không có người nhận thay mà phải chuyển về admin phân công. Hãy chỉ định người phụ:
+            div(style="display:flex; flex-wrap:wrap; gap:8px;")
+              each m in missing
+                a(href=`/accounts/edit/${m._id}` style="background:#d93025; color:white; padding:4px 12px; border-radius:16px; text-decoration:none; font-weight:600; font-size:0.9em;")= m.name
+
         - var tabBase = 'padding:8px 16px; border-radius:8px; text-decoration:none; font-weight:600;'
         - var tabOn = tabBase + ' background:var(--primary); color:white;'
         - var tabOff = tabBase + ' background:#eee; color:#333;'
 
         div(style="margin-bottom: 15px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;")
-          a(href="/accounts" style=(!roleFilter ? tabOn : tabOff)) Tất cả
           a(href="/accounts?role=admin" style=(roleFilter === 'admin' ? tabOn : tabOff)) Admin
           a(href="/accounts?role=user" style=(roleFilter === 'user' ? tabOn : tabOff)) Nhân viên
           a(href="/accounts?role=customer" style=(roleFilter === 'customer' ? tabOn : tabOff)) Khách hàng
@@ -47,6 +57,11 @@ html
                 th Tên đăng nhập
                 th Họ tên
                 th Vai trò
+                if roleFilter === 'customer'
+                  th Nhân viên phụ trách
+                if roleFilter === 'user'
+                  th NV chăm sóc phụ
+                  th Trạng thái làm việc
                 th Trạng thái mật khẩu
                 th Hành động
 
@@ -65,6 +80,49 @@ html
                         span(style="background: #e6f4ea; color:#137333; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.85em;") Khách hàng
                       else
                         span Không xác định
+                    if roleFilter === 'customer'
+                      td
+                        if account.assignedStaffName === 'Chưa phân công' || account.assignedStaffName === 'Chưa có hồ sơ khách'
+                          span(style="color:#888;")= account.assignedStaffName
+                        else if account.assignedStaffName === 'Chờ admin phân công'
+                          span(style="color:#b06000; font-weight:600;")= account.assignedStaffName
+                        else
+                          = account.assignedStaffName
+                    if roleFilter === 'user'
+                      td
+                        if account.backupStaffName
+                          = account.backupStaffName
+                          if account.mutualBackup
+                            span(title="Hai nhân viên là phụ của nhau: khi một người nghỉ, người kia không thể thay thế" style="margin-left:6px; background:#fef7e0; color:#b06000; padding:2px 8px; border-radius:10px; font-size:0.75em; font-weight:600;")
+                              i.fas.fa-triangle-exclamation(style="margin-right:4px;")
+                              | Phụ của nhau
+                        else if account.role === 'customer'
+                          | —
+                        else if account.noBackup
+                          span(title="Nhân viên này chưa có nhân viên chăm sóc phụ" style="background:#fce8e6; color:#c5221f; border:1px solid #d93025; padding:3px 10px; border-radius:12px; font-weight:700; font-size:0.85em; white-space:nowrap;")
+                            i.fas.fa-triangle-exclamation(style="margin-right:5px;")
+                            | Chưa có NV phụ
+                        else
+                          span(style="color:#888;") Chưa chỉ định
+                        if account.backupAway
+                          span(title="Nhân viên chăm sóc phụ đang tạm vắng: khách sẽ không được giao cho người này" style="margin-left:6px; background:#fce8e6; color:#c5221f; padding:2px 8px; border-radius:10px; font-size:0.75em; font-weight:600;") Phụ đang vắng
+                      td
+                        if account.availability === 'on_leave'
+                          span(style="background:#fef7e0; color:#b06000; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.85em; white-space:nowrap;") Tạm vắng
+                          if account.leaveToText
+                            div(style="color:#888; font-size:0.8em; margin-top:2px;")= `Dự kiến về: ${account.leaveToText}`
+                          form(method="POST" action=`/staff/availability/${account._id}` style="margin-top:6px;")
+                            input(type="hidden" name="status" value="available")
+                            input(type="hidden" name="back" value="/accounts")
+                            button.btn-edit(type="submit" onclick="return confirm('Xác nhận nhân viên này đã đi làm lại?')" style="border:0; cursor:pointer;") Đã đi làm lại
+                        else if account.availability === 'available'
+                          span(style="background:#e6f4ea; color:#137333; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.85em; white-space:nowrap;") Đang làm việc
+                          form(method="POST" action=`/staff/availability/${account._id}` style="margin-top:6px;")
+                            input(type="hidden" name="status" value="on_leave")
+                            input(type="hidden" name="back" value="/accounts")
+                            button.btn-edit(type="submit" title="Chỉ đổi trạng thái, không tự chuyển khách. Muốn chuyển khách hãy tạo yêu cầu bàn giao." onclick="return confirm('Đặt nhân viên này sang tạm vắng? (Khách sẽ không tự chuyển, hãy tạo bàn giao nếu cần)')" style="border:0; cursor:pointer; background:#5f6368;") Đặt tạm vắng
+                        else
+                          | —
                     td= account.passwordStatus
                     td
                       a.btn-edit(href=`/accounts/edit/${account._id}`) Sửa
@@ -75,6 +133,6 @@ html
                       ) Xóa
               else
                 tr
-                  td(colspan="5" style="text-align: center; padding: 20px;") Chưa có dữ liệu tài khoản
+                  td(colspan=(roleFilter === 'user' ? 7 : (roleFilter === 'customer' ? 6 : 5)) style="text-align: center; padding: 20px;") Chưa có dữ liệu tài khoản
 
     include _script.pug

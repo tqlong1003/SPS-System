@@ -49,7 +49,8 @@ html
                 select#reasonType(name="reasonType" required)
                   option(value="") -- Chọn lý do --
                   each r in reasons
-                    option(value=r selected=(form.reasonType === r))= r
+                    if r !== 'Đi làm lại' || returnCandidates.length
+                      option(value=r selected=(form.reasonType === r))= r
 
               #leaveFields(style="display:none;")
                 .form-row
@@ -64,8 +65,20 @@ html
                 label Ghi chú cho admin
                 input(name="note" value=form.note placeholder="VD: Đang xử lý dở 2 đơn bảo hành, lưu ý khách Nguyễn Văn A")
 
-              p(style="margin: 6px 0 10px; color:#888; font-size:0.9em;")
-                | Mỗi khách sẽ được bàn giao cho nhân viên chăm sóc phụ của khách đó. Nếu khách chưa có nhân viên phụ, admin sẽ chọn người nhận khi duyệt.
+              p#leaveHint(style="margin: 6px 0 10px; color:#888; font-size:0.9em;")
+                if hasBackup
+                  | Khách sẽ được bàn giao cho nhân viên chăm sóc phụ của nhân viên này: 
+                  strong= backupName
+                  | .
+                else
+                  span(style="color:#b06000; font-weight:600;")
+                    if backupAway
+                      = `Nhân viên chăm sóc phụ (${backupName}) đang tạm vắng. `
+                    else
+                      | Nhân viên này chưa có nhân viên chăm sóc phụ. 
+                    | Khách sẽ được chuyển về admin để phân công cho nhân viên khác.
+              p#returnHint(style="margin: 6px 0 10px; color:#888; font-size:0.9em; display:none;")
+                | Đi làm lại: trả khách đang giữ hộ về đúng chủ cũ (cột "Trả về").
 
               .table-container(style="margin-bottom: 16px;")
                 table
@@ -76,10 +89,11 @@ html
                       th Mã KH
                       th Tên khách hàng
                       th SĐT
-                      th Nhân viên chăm sóc phụ
+                      th Người nhận
                   tbody
                     each c in candidates
-                      tr
+                      - var ret = returnCandidates.find(function (x) { return String(x._id) === String(c._id) })
+                      tr.cust-row(data-return=(ret ? '1' : '0'))
                         td
                           input.cust-check(type="checkbox" name="customerIds" value=c._id checked=!c.locked disabled=c.locked)
                         td(style="font-weight:bold;")= c.customerCode
@@ -88,11 +102,14 @@ html
                         td
                           if c.locked
                             span(style="color:#b06000; font-weight:600;") Đang nằm trong yêu cầu chờ duyệt khác
-                          else if c.backupStaffName
-                            = c.backupStaffName
                           else
-                            span(style="color:#c5221f; font-weight:600;") Chưa có (admin chọn khi duyệt)
-
+                            span.target-leave
+                              if hasBackup
+                                = backupName
+                              else
+                                span(style="color:#b06000; font-weight:600;") Chuyển về admin phân công
+                            if ret
+                              span.target-return(style="display:none;")= ret.returnToName ? `Trả về ${ret.returnToName}` : 'Trả về chủ cũ'
               .form-actions
                 button.btn-save(type="submit")= user.role === 'admin' ? 'Tạo yêu cầu' : 'Gửi cho admin'
                 a.btn-cancel(href="/handovers") Hủy
@@ -103,7 +120,23 @@ html
         var reason = document.getElementById('reasonType')
         var leave = document.getElementById('leaveFields')
         if (reason && leave) {
-          var sync = function () { leave.style.display = reason.value === 'Nghỉ phép' ? 'block' : 'none' }
+          var sync = function () {
+            leave.style.display = reason.value === 'Nghỉ phép' ? 'block' : 'none'
+            var isReturn = reason.value === 'Đi làm lại'
+            var lh = document.getElementById('leaveHint'), rh = document.getElementById('returnHint')
+            if (lh) lh.style.display = isReturn ? 'none' : ''
+            if (rh) rh.style.display = isReturn ? '' : 'none'
+            document.querySelectorAll('.cust-row').forEach(function (row) {
+              var show = !isReturn || row.getAttribute('data-return') === '1'
+              row.style.display = show ? '' : 'none'
+              var cb = row.querySelector('.cust-check')
+              if (cb && !show) { cb.checked = false }
+              if (cb && show && !cb.disabled && isReturn) { cb.checked = true }
+              var tl = row.querySelector('.target-leave'), tr = row.querySelector('.target-return')
+              if (tl) tl.style.display = isReturn ? 'none' : ''
+              if (tr) tr.style.display = isReturn ? '' : 'none'
+            })
+          }
           reason.addEventListener('change', sync)
           sync()
         }

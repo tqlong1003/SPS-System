@@ -201,6 +201,31 @@ function addDaysFromToday(days) {
 }
 
 // Lấy giá trị thực từ 1 field khi request là multipart (mỗi field đến dạng { value, fieldname, ... })
+// Ngày sinh dạng "YYYY-MM-DD": đúng định dạng, là ngày có thật, không ở tương lai, từ năm 1900
+function isValidBirthDate(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''))
+  if (!m) return false
+  const y = Number(m[1]); const mo = Number(m[2]); const d = Number(m[3])
+  const dt = new Date(y, mo - 1, d)
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return false
+  return y >= 1900 && dt.getTime() <= Date.now()
+}
+
+// "2000-05-17" -> "17/05/2000" (không qua Date để khỏi lệch múi giờ)
+function formatBirthDate(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''))
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : ''
+}
+
+function ageFromBirthDate(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''))
+  if (!m) return null
+  const now = new Date()
+  let age = now.getFullYear() - Number(m[1])
+  if (now.getMonth() + 1 < Number(m[2]) || (now.getMonth() + 1 === Number(m[2]) && now.getDate() < Number(m[3]))) age--
+  return age
+}
+
 function fieldValue(field) {
   if (field === undefined || field === null) return ''
   return typeof field === 'object' && 'value' in field ? field.value : field
@@ -246,6 +271,24 @@ function canActOnRecord(req, record) {
 function canAccessCustomer(req, customer) {
   if (req.user.role === 'admin') return true
   return !customer.assignedTo || customer.assignedTo.toString() === String(req.user.id)
+}
+
+// Nhân viên phụ cấp NHÂN VIÊN: users.backupStaffId = người thay thế cho TẤT CẢ khách của nhân viên chuyên quản đó.
+// Trả về danh sách _id các nhân viên mà `staffId` đang là người phụ (nhiều chuyên quản có thể dùng chung 1 người phụ).
+async function getCoveredStaffIds(db, staffId) {
+  const id = normalizeObjectId(staffId)
+  if (!id) return []
+  const list = await db.collection('users').find({ backupStaffId: id, role: { $in: STAFF_ROLES } }, { projection: { _id: 1 } }).toArray()
+  return list.map(u => u._id)
+}
+
+// Kiểm tra nhân viên phụ hợp lệ: là tài khoản nội bộ và khác chính nhân viên chuyên quản. Trả về ObjectId hoặc null.
+async function resolveBackupStaff(db, rawId, primaryId) {
+  const id = normalizeObjectId(rawId)
+  if (!id) return null
+  if (primaryId && String(primaryId) === String(id)) return null
+  const account = await db.collection('users').findOne({ _id: id, role: { $in: STAFF_ROLES } })
+  return account ? account._id : null
 }
 
 // Trừ / cộng lại tồn kho theo danh sách items của đơn hàng
@@ -650,17 +693,18 @@ async function syncCustomerBirthdayReminder(customerId) {
 // Thông tin ban đầu có thể chưa đầy đủ (chỉ có tên, SĐT) - admin sẽ vào
 // mục "Nhân viên" để bổ sung/sửa thêm sau (năm sinh, giới tính, chức vụ chi tiết, ...).
 // Liên kết 2 chiều: users.employeeId <-> employees.userId, để dễ tra cứu và tránh tạo trùng.
-async function createEmployeeForUserAccount(accountId, { name, phone }) {
+async function createEmployeeForUserAccount(accountId, { name, phone, email, birthDate, address }) {
   const employeeResult = await fastify.mongo.db.collection('employees').insertOne({
     employeeCode: `NV-${Date.now().toString().slice(-6)}`,
     name: name || 'Chưa cập nhật',
-    birthYear: null,
+    birthDate: birthDate || '',
+    birthYear: birthDate ? Number(String(birthDate).slice(0, 4)) : null,
     gender: 'Nam',
     phone: phone || '',
-    email: '',
+    email: email || '',
     position: EMPLOYEE_POSITION,
     startDate: new Date().toISOString().slice(0, 10),
-    address: '',
+    address: address || '',
     note: 'Hồ sơ được tạo tự động khi cấp tài khoản đăng nhập - vui lòng bổ sung thêm thông tin.',
     userId: accountId,
     createdAt: new Date()
@@ -802,6 +846,23 @@ fastify.addHook('onRequest', async (req, reply) => {
     if (ctx.user && ctx.user.role === 'admin' && ctx.pendingHandoverCount === undefined) {
       ctx = { ...ctx, pendingHandoverCount: await countPendingHandovers() }
     }
+    // Admin: danh sách nhân viên chưa có chăm sóc phụ -> cảnh báo đỏ ở menu, trang tổng quan và danh sách tài khoản
+    if (ctx.user && ctx.user.role === 'admin' && ctx.noBackupStaff === undefined) {
+      ctx = { ...ctx, noBackupStaff: await getStaffWithoutBackup() }
+    }
+    if (ctx.user && ctx.user.role === 'admin' && ctx.unassignedCustomerCount === undefined) {
+      ctx = { ...ctx, unassignedCustomerCount: await countUnassignedCustomers() }
+    }
+    if (ctx.user && ctx.user.role === 'admin' && ctx.pendingReassignCount === undefined) {
+      ctx = { ...ctx, pendingReassignCount: await countPendingReassign() }
+    }
+    // Nhân viên / admin: biết mình đang "tạm vắng" để hiện nút "Tôi đã đi làm lại" ở menu
+    if (ctx.user && ctx.user.role !== 'customer' && ctx.myAvailability === undefined) {
+      ctx = { ...ctx, myAvailability: await getMyAvailability(ctx.user.id) }
+    }
+    if (ctx.user && ctx.user.role !== 'customer' && ctx.todayReminderCount === undefined) {
+      ctx = { ...ctx, todayReminderCount: await countTodayReminders(req) }
+    }
     return originalView.call(this, template, ctx, opts)
   }
 })
@@ -941,6 +1002,10 @@ fastify.post('/register', { preHandler: staff }, async (req, reply) => {
   const password = String(body.password || '')
   const name = String(body.name || '').trim()
   const phone = String(body.phone || '').trim()
+  // Thông tin riêng của tài khoản NHÂN VIÊN (tên trường khác với của khách hàng để khỏi trùng tên trong form)
+  const staffEmail = String(body.staffEmail || '').trim()
+  const staffBirthDate = String(body.staffBirthDate || '').trim()
+  const staffAddress = String(body.staffAddress || '').trim()
   // Nhân viên bị ép role = 'customer' ở phía server (không tin dữ liệu từ form)
   const role = isAdminUser ? body.role : 'customer'
 
@@ -961,6 +1026,13 @@ fastify.post('/register', { preHandler: staff }, async (req, reply) => {
   if (!phone) return fail('Vui lòng nhập số điện thoại!')
   if (!/^\+?\d{9,12}$/.test(phone.replace(/[\s.\-]/g, ''))) return fail('Số điện thoại không hợp lệ (chỉ gồm 9-12 chữ số)!')
   if (password.length < 6) return fail('Mật khẩu phải có ít nhất 6 ký tự!')
+  if (role === 'user') {
+    if (!staffEmail) return fail('Vui lòng nhập email nhân viên!')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(staffEmail)) return fail('Email không hợp lệ!')
+    if (!staffBirthDate) return fail('Vui lòng nhập ngày sinh nhân viên!')
+    if (!isValidBirthDate(staffBirthDate)) return fail('Ngày sinh không hợp lệ (không được ở tương lai)!')
+    if (!staffAddress) return fail('Vui lòng nhập nơi ở của nhân viên!')
+  }
 
   const existingUser = await db.collection('users').findOne({ username })
   if (existingUser) return fail('Tên đăng nhập đã tồn tại!')
@@ -1003,7 +1075,7 @@ fastify.post('/register', { preHandler: staff }, async (req, reply) => {
 
   if (role === 'user') {
     // Cấp tài khoản Nhân viên -> tự động khởi tạo hồ sơ nhân viên tương ứng
-    await createEmployeeForUserAccount(accountId, { name: displayName, phone: displayPhone })
+    await createEmployeeForUserAccount(accountId, { name: displayName, phone: displayPhone, email: staffEmail, birthDate: staffBirthDate, address: staffAddress })
   } else {
     // Cấp tài khoản Khách hàng -> liên kết (hoặc tạo mới) hồ sơ khách hàng
     let customerDocId
@@ -1063,16 +1135,39 @@ fastify.get('/accounts', { preHandler: [auth] }, async (req, reply) => {
     )
   }
 
-  const roleFilter = ALL_ROLES.includes(req.query.role) ? req.query.role : ''
+  // Không còn tab "Tất cả": mặc định hiển thị tab Admin
+  const roleFilter = ALL_ROLES.includes(req.query.role) ? req.query.role : 'admin'
 
   const accounts = await fastify.mongo.db
     .collection('users')
-    .find({ role: roleFilter || { $in: ALL_ROLES } })
+    .find({ role: roleFilter })
     .sort({ name: 1 })
     .toArray()
 
+  const allStaff = await fastify.mongo.db.collection('users').find({ role: { $in: STAFF_ROLES } }).toArray()
+  const nameById = new Map(allStaff.map(a => [a._id.toString(), a.name || a.username]))
+  const backupById = new Map(allStaff.map(a => [a._id.toString(), a.backupStaffId ? a.backupStaffId.toString() : '']))
+  const awayIds = new Set(allStaff.filter(a => !isStaffAvailable(a)).map(a => a._id.toString()))
+  // Tab Khách hàng: nhân viên phụ trách = người đang phụ trách hồ sơ khách gắn với tài khoản (customers.userId)
+  const ownerByAccountId = new Map()
+  if (roleFilter === 'customer' && accounts.length) {
+    const linked = await fastify.mongo.db.collection('customers')
+      .find({ userId: { $in: accounts.map(a => a._id) } }, { projection: { userId: 1, assignedTo: 1, pendingReassign: 1 } }).toArray()
+    for (const c of linked) {
+      const ownerName = c.assignedTo ? (nameById.get(c.assignedTo.toString()) || 'Chưa rõ') : (c.pendingReassign ? POOL_NAME : 'Chưa phân công')
+      ownerByAccountId.set(c.userId.toString(), ownerName)
+    }
+  }
   const accountsView = accounts.map(a => ({
     ...a,
+    assignedStaffName: roleFilter === 'customer' ? (ownerByAccountId.get(a._id.toString()) || 'Chưa có hồ sơ khách') : '',
+    backupStaffName: STAFF_ROLES.includes(a.role) && a.backupStaffId ? (nameById.get(a.backupStaffId.toString()) || 'Chưa rõ') : '',
+    // Hai người là phụ của nhau -> khi 1 người nghỉ, người kia cũng không thể thay thế
+    mutualBackup: STAFF_ROLES.includes(a.role) && !!a.backupStaffId && backupById.get(a.backupStaffId.toString()) === a._id.toString(),
+    availability: STAFF_ROLES.includes(a.role) ? (awayIds.has(a._id.toString()) ? STAFF_AWAY : STAFF_AVAILABLE) : '',
+    leaveToText: a.leaveTo ? formatDate(a.leaveTo) : '',
+    backupAway: STAFF_ROLES.includes(a.role) && !!a.backupStaffId && awayIds.has(a.backupStaffId.toString()),
+    noBackup: a.role === 'user' && (!a.backupStaffId || !nameById.has(a.backupStaffId.toString()) || a.backupStaffId.toString() === a._id.toString()),
     passwordStatus:
       typeof a.password === 'string' &&
       a.password.startsWith('$2')
@@ -1106,12 +1201,25 @@ fastify.get('/accounts/edit/:id', { preHandler: staff }, async (req, reply) => {
     return reply.status(403).send('❌ Nhân viên chỉ được sửa tài khoản của chính mình')
   }
 
-  return reply.view('account_edit.pug', {
-    account,
-    user: req.user,
-    error: null
-  })
+  return reply.view('account_edit.pug', await buildAccountEditView(req, account, {}))
 })
+
+// Dữ liệu cho form sửa tài khoản: admin chọn được nhân viên chăm sóc phụ cho tài khoản nội bộ
+async function buildAccountEditView(req, account, extra) {
+  const db = fastify.mongo.db
+  const canSetBackup = req.user.role === 'admin' && STAFF_ROLES.includes(account.role)
+  const staffList = canSetBackup
+    ? await db.collection('users').find({ role: { $in: STAFF_ROLES }, _id: { $ne: account._id } }).sort({ name: 1 }).toArray()
+    : []
+  let mutualWarning = ''
+  if (canSetBackup && account.backupStaffId) {
+    const b = await db.collection('users').findOne({ _id: account.backupStaffId })
+    if (b && b.backupStaffId && String(b.backupStaffId) === String(account._id)) {
+      mutualWarning = `${b.name || b.username} cũng đang là nhân viên phụ của tài khoản này (phụ của nhau). Khi một người nghỉ, người còn lại sẽ không có ai thay thế.`
+    }
+  }
+  return { account, user: req.user, error: null, canSetBackup, staffList, mutualWarning, ...extra }
+}
 
 
 fastify.post('/accounts/edit/:id', { preHandler: staff }, async (req, reply) => {
@@ -1135,6 +1243,12 @@ fastify.post('/accounts/edit/:id', { preHandler: staff }, async (req, reply) => 
   const updateData = {
     name: name || account.name,
     phone: phone || ''
+  }
+
+  // Chỉ admin đặt nhân viên chăm sóc phụ (1 người cho TẤT CẢ khách của tài khoản này)
+  if (req.user.role === 'admin' && STAFF_ROLES.includes(account.role)) {
+    const backupId = await resolveBackupStaff(fastify.mongo.db, req.body.backupStaffId, account._id)
+    updateData.backupStaffId = backupId
   }
 
   await fastify.mongo.db
@@ -1219,9 +1333,13 @@ fastify.get('/employees', { preHandler: [auth, isAdmin] }, async (req, reply) =>
     .toArray()
 
   const totalCount = employees.length
+  const employeesView = employees.map(e => ({
+    ...e,
+    birthText: e.birthDate ? formatBirthDate(e.birthDate) : (e.birthYear ? String(e.birthYear) : '')
+  }))
 
   return reply.view('employees.pug', {
-    employees,
+    employees: employeesView,
     user: req.user,
     totalCount
   })
@@ -1247,9 +1365,10 @@ fastify.get('/employees/detail/:id', { preHandler: [auth, isAdmin] }, async (req
   const seniority = formatSeniority(employee.startDate)
 
   const info = {
-    birthYearText: employee.birthYear
-      ? `${employee.birthYear} (${new Date().getFullYear() - Number(employee.birthYear)} tuổi)`
-      : '',
+    // Có ngày sinh đầy đủ thì hiện dd/mm/yyyy + tuổi chính xác; hồ sơ cũ chỉ có năm sinh thì hiện năm sinh
+    birthYearText: employee.birthDate && ageFromBirthDate(employee.birthDate) !== null
+      ? `${formatBirthDate(employee.birthDate)} (${ageFromBirthDate(employee.birthDate)} tuổi)`
+      : (employee.birthYear ? `${employee.birthYear} (${new Date().getFullYear() - Number(employee.birthYear)} tuổi)` : ''),
     startDateText: startDateText && seniority ? `${startDateText} (thâm niên ${seniority})` : startDateText,
     createdAtText: employee.createdAt ? new Date(employee.createdAt).toLocaleString('vi-VN') : '',
     accountRoleText: account ? (account.role === 'admin' ? 'Quản trị viên' : 'Nhân viên') : '',
@@ -1273,7 +1392,7 @@ fastify.get('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, 
 fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req, reply) => {
   const body = req.body || {}
   const name = fieldValue(body.name)
-  const birthYear = fieldValue(body.birthYear)
+  const birthDate = String(fieldValue(body.birthDate) || '').trim()
   const gender = fieldValue(body.gender)
   const phone = fieldValue(body.phone)
   const email = fieldValue(body.email)
@@ -1283,13 +1402,16 @@ fastify.post('/employees/edit/:id', { preHandler: [auth, isAdmin] }, async (req,
 
   const employee = await fastify.mongo.db.collection('employees').findOne({ _id: new ObjectId(req.params.id) })
   if (!employee) return reply.status(404).send('❌ Không tìm thấy nhân viên')
+  if (birthDate && !isValidBirthDate(birthDate)) return reply.status(400).send('❌ Ngày sinh không hợp lệ (không được ở tương lai)')
 
   await fastify.mongo.db.collection('employees').updateOne(
     { _id: new ObjectId(req.params.id) },
     {
       $set: {
         name,
-        birthYear: birthYear ? Number(birthYear) : null,
+        // Có ngày sinh thì suy ra năm sinh; để trống thì giữ nguyên năm sinh cũ (hồ sơ cũ chỉ có năm)
+        birthDate,
+        birthYear: birthDate ? Number(birthDate.slice(0, 4)) : (employee.birthYear || null),
         gender: gender || 'Nam',
         phone: phone || '',
         email: email || '',
@@ -1359,10 +1481,14 @@ fastify.get('/customers', { preHandler: staff }, async (req, reply) => {
   const searchKeyword = String(req.query.keyword || '').trim()
   const searchRegex = buildContainsRegex(searchKeyword)
   const showBirthdayOnly = req.query.filter === 'birthday'
+  // Chỉ admin: lọc các khách chưa có nhân viên chăm sóc (nhân viên không nhìn thấy khách chưa phân công)
+  const showUnassignedOnly = req.query.filter === 'unassigned' && req.user.role === 'admin'
 
-  // Nhân viên thấy khách mình chuyên quản + khách mình là nhân viên chăm sóc phụ
+  // Nhân viên thấy khách mình chuyên quản + khách của những nhân viên mà mình là người chăm sóc phụ
   const myId = normalizeObjectId(req.user.id)
-  const filter = req.user.role === 'admin' ? {} : { $or: [{ assignedTo: myId }, { backupStaffId: myId }] }
+  const coveredIds = req.user.role === 'admin' ? [] : await getCoveredStaffIds(fastify.mongo.db, myId)
+  const filter = req.user.role === 'admin' ? {} : { assignedTo: { $in: [myId, ...coveredIds] } }
+  if (showUnassignedOnly) filter.assignedTo = null
   if (searchRegex) {
     filter.$and = [{
       $or: [
@@ -1381,7 +1507,13 @@ fastify.get('/customers', { preHandler: staff }, async (req, reply) => {
 
   if (showBirthdayOnly) customers = customers.filter(c => isBirthdayThisMonth(c.birthDate))
 
-  const staffIds = customers.flatMap(c => [c.assignedTo, c.backupStaffId]).filter(Boolean)
+  // Nhân viên phụ của khách = nhân viên phụ của người chuyên quản
+  const ownerIds = [...new Set(customers.map(c => c.assignedTo).filter(Boolean).map(String))].map(id => new ObjectId(id))
+  const owners = ownerIds.length
+    ? await fastify.mongo.db.collection('users').find({ _id: { $in: ownerIds } }).toArray()
+    : []
+  const backupOfOwner = new Map(owners.map(o => [o._id.toString(), o.backupStaffId ? o.backupStaffId.toString() : '']))
+  const staffIds = [...owners.map(o => o._id), ...owners.map(o => o.backupStaffId).filter(Boolean)]
   const staffList = staffIds.length
     ? await fastify.mongo.db.collection('users').find({ _id: { $in: staffIds } }).toArray()
     : []
@@ -1389,16 +1521,18 @@ fastify.get('/customers', { preHandler: staff }, async (req, reply) => {
 
   const customersView = customers.map(c => ({
     ...c,
-    assignedToName: c.assignedTo ? (staffNameById.get(c.assignedTo.toString()) || 'Chưa rõ') : 'Chưa phân công',
-    backupStaffName: c.backupStaffId ? (staffNameById.get(c.backupStaffId.toString()) || 'Chưa rõ') : '',
+    assignedToName: c.assignedTo ? (staffNameById.get(c.assignedTo.toString()) || 'Chưa rõ') : (c.pendingReassign ? POOL_NAME : 'Chưa phân công'),
+    backupStaffName: (c.assignedTo && backupOfOwner.get(c.assignedTo.toString()))
+      ? (staffNameById.get(backupOfOwner.get(c.assignedTo.toString())) || 'Chưa rõ') : '',
     // Chỉ là nhân viên phụ (không phải chuyên quản): xem được, chưa được sửa
     isBackupOnly: req.user.role !== 'admin' && String(c.assignedTo || '') !== String(req.user.id),
-    isBirthdayMonth: isBirthdayThisMonth(c.birthDate)
+    isBirthdayMonth: isBirthdayThisMonth(c.birthDate),
+    noStaff: !c.assignedTo // chưa có nhân viên chăm sóc -> huy hiệu đỏ
   }))
 
   return reply.view('customers.pug', {
     customers: customersView, user: req.user, searchKeyword,
-    showBirthdayOnly
+    showBirthdayOnly, showUnassignedOnly
   })
 })
 
@@ -1410,9 +1544,8 @@ fastify.get('/customers/add', { preHandler: staff }, async (req, reply) => {
 })
 
 fastify.post('/customers/add', { preHandler: staff }, async (req, reply) => {
-  const { customerCode, name, phone, email, address, birthDate, assignedTo, backupStaffId, note } = req.body
+  const { customerCode, name, phone, email, address, birthDate, assignedTo, note } = req.body
   const primaryId = assignedTo ? normalizeObjectId(assignedTo) : normalizeObjectId(req.user.id)
-  const backupId = await resolveBackupStaff(fastify.mongo.db, backupStaffId, primaryId)
 
   const inserted = await fastify.mongo.db.collection('customers').insertOne({
     customerCode: customerCode || `KH-${Date.now().toString().slice(-6)}`,
@@ -1422,7 +1555,6 @@ fastify.post('/customers/add', { preHandler: staff }, async (req, reply) => {
     address: address || '',
     birthDate: birthDate || '',
     assignedTo: primaryId,
-    backupStaffId: backupId, // nhân viên chăm sóc phụ
     note: note || '',
     createdAt: new Date()
   })
@@ -1448,7 +1580,7 @@ fastify.get('/customers/edit/:id', { preHandler: staff }, async (req, reply) => 
 })
 
 fastify.post('/customers/edit/:id', { preHandler: staff }, async (req, reply) => {
-  const { customerCode, name, phone, email, address, birthDate, assignedTo, backupStaffId, note } = req.body
+  const { customerCode, name, phone, email, address, birthDate, assignedTo, note } = req.body
 
   const existing = await fastify.mongo.db.collection('customers').findOne({ _id: new ObjectId(req.params.id) })
   if (!existing) return reply.status(404).send('❌ Không tìm thấy khách hàng')
@@ -1459,7 +1591,6 @@ fastify.post('/customers/edit/:id', { preHandler: staff }, async (req, reply) =>
   // Nhân viên không tự đổi chuyên quản của khách đã được phân công (phải gửi yêu cầu bàn giao cho admin)
   const lockAssignee = req.user.role !== 'admin' && !!existing.assignedTo
   const newAssignedTo = lockAssignee ? existing.assignedTo : (assignedTo ? normalizeObjectId(assignedTo) : null)
-  const newBackup = await resolveBackupStaff(fastify.mongo.db, backupStaffId, newAssignedTo)
 
   await fastify.mongo.db.collection('customers').updateOne(
     { _id: new ObjectId(req.params.id) },
@@ -1468,7 +1599,6 @@ fastify.post('/customers/edit/:id', { preHandler: staff }, async (req, reply) =>
         customerCode, name, phone: phone || '', email: email || '',
         address: address || '', birthDate: birthDate || '',
         assignedTo: newAssignedTo,
-        backupStaffId: newBackup,
         note: note || ''
       }
     }
@@ -1503,20 +1633,22 @@ fastify.get('/customers/detail/:id', { preHandler: staff }, async (req, reply) =
   const customer = await fastify.mongo.db.collection('customers').findOne({ _id: customerId })
   if (!customer) return reply.status(404).send('❌ Không tìm thấy khách hàng')
 
-  // Nhân viên chăm sóc phụ được XEM (để nắm tình hình khách), nhưng chưa được ghi chú / đặt lịch
+  // Nhân viên chăm sóc phụ (của người chuyên quản) được XEM để nắm tình hình khách, nhưng chưa được ghi chú / đặt lịch
+  const assignedStaff = customer.assignedTo
+    ? await fastify.mongo.db.collection('users').findOne({ _id: customer.assignedTo })
+    : null
   const isBackupViewer = req.user.role !== 'admin' && !canAccessCustomer(req, customer) &&
-    !!customer.backupStaffId && customer.backupStaffId.toString() === String(req.user.id)
+    !!assignedStaff && !!assignedStaff.backupStaffId && assignedStaff.backupStaffId.toString() === String(req.user.id)
   if (!canAccessCustomer(req, customer) && !isBackupViewer) {
     return reply.status(403).send('❌ Bạn không có quyền xem khách hàng này')
   }
 
-  const [orders, activities, warranties, reminders, assignedStaff, backupStaff, handoverLogs] = await Promise.all([
+  const [orders, activities, warranties, reminders, backupStaff, handoverLogs] = await Promise.all([
     fastify.mongo.db.collection('orders').find({ customerId }).sort({ createdAt: -1 }).toArray(),
     fastify.mongo.db.collection('activities').find({ customerId }).sort({ createdAt: -1 }).toArray(),
     fastify.mongo.db.collection('warranties').find({ customerId }).sort({ purchaseDate: -1 }).toArray(),
     fastify.mongo.db.collection('reminders').find({ customerId }).sort({ dueDate: 1 }).toArray(),
-    customer.assignedTo ? fastify.mongo.db.collection('users').findOne({ _id: customer.assignedTo }) : null,
-    customer.backupStaffId ? fastify.mongo.db.collection('users').findOne({ _id: customer.backupStaffId }) : null,
+    assignedStaff && assignedStaff.backupStaffId ? fastify.mongo.db.collection('users').findOne({ _id: assignedStaff.backupStaffId }) : null,
     fastify.mongo.db.collection('handover_logs').find({ customerId }).sort({ createdAt: -1 }).toArray()
   ])
 
@@ -1545,7 +1677,7 @@ fastify.get('/customers/detail/:id', { preHandler: staff }, async (req, reply) =
   return reply.view('customer_detail.pug', {
     customer, orders: ordersView, activities: activitiesView, warranties: warrantiesView,
     reminders: remindersView,
-    assignedStaffName: assignedStaff ? (assignedStaff.name || assignedStaff.username) : 'Chưa phân công',
+    assignedStaffName: assignedStaff ? (assignedStaff.name || assignedStaff.username) : (customer.pendingReassign ? POOL_NAME : 'Chưa phân công'),
     backupStaffName: backupStaff ? (backupStaff.name || backupStaff.username) : 'Chưa chỉ định',
     handoverLogs: handoverLogs.map(l => ({ ...l, createdAtText: formatDateTime(l.createdAt) })),
     isBackupViewer,
@@ -1621,9 +1753,19 @@ fastify.get('/reminders', { preHandler: staff }, async (req, reply) => {
   const stageKeys = Object.keys(REMINDER_STAGES)
   const stage = stageKeys.includes(req.query.stage) || req.query.stage === 'other' ? req.query.stage : ''
 
-  // Đếm số lịch từng giai đoạn (cùng phạm vi quyền + cùng trạng thái đang xem, chưa lọc giai đoạn)
-  const countRows = await fastify.mongo.db.collection('reminders').aggregate([
-    { $match: filter },
+  // Lọc theo khoảng thời gian: hôm nay / tuần này / tháng này (rỗng = tất cả)
+  const ranges = reminderPeriodRanges()
+  // "Quá hạn" chỉ có ý nghĩa với việc chưa làm nên không dùng ở tab "Đã hoàn thành"
+  const periodKeys = showDone ? ['today', 'week', 'month'] : ['today', 'overdue', 'week', 'month']
+  const period = periodKeys.includes(req.query.period) ? req.query.period : ''
+  const periodFilter = period ? { dueDate: ranges[period] } : {}
+  const stageFilter = stage === 'other' ? { source: { $nin: stageKeys } } : (stage ? { source: stage } : {})
+
+  const remindersCol = fastify.mongo.db.collection('reminders')
+
+  // Đếm số lịch từng giai đoạn (cùng phạm vi quyền + trạng thái + khoảng thời gian đang chọn, chưa lọc giai đoạn)
+  const countRows = await remindersCol.aggregate([
+    { $match: { ...filter, ...periodFilter } },
     { $group: { _id: '$source', n: { $sum: 1 } } }
   ]).toArray()
   const stageCounts = { all: 0, other: 0 }
@@ -1639,12 +1781,24 @@ fastify.get('/reminders', { preHandler: staff }, async (req, reply) => {
     { key: 'other', label: 'Khác', count: stageCounts.other }
   ]
 
-  const listFilter = { ...filter }
-  if (stage === 'other') listFilter.source = { $nin: stageKeys }
-  else if (stage) listFilter.source = stage
+  // Đếm số việc theo khoảng thời gian (cùng phạm vi quyền + trạng thái + giai đoạn đang chọn)
+  const [cntAll, cntToday, cntOverdue, cntWeek, cntMonth] = await Promise.all([
+    remindersCol.countDocuments({ ...filter, ...stageFilter }),
+    remindersCol.countDocuments({ ...filter, ...stageFilter, dueDate: ranges.today }),
+    showDone ? 0 : remindersCol.countDocuments({ ...filter, ...stageFilter, dueDate: ranges.overdue }),
+    remindersCol.countDocuments({ ...filter, ...stageFilter, dueDate: ranges.week }),
+    remindersCol.countDocuments({ ...filter, ...stageFilter, dueDate: ranges.month })
+  ])
+  const periodTabs = [
+    { key: '', label: 'Tất cả', count: cntAll },
+    { key: 'today', label: 'Công việc hôm nay', count: cntToday, highlight: true, hint: 'Số việc có hẹn hôm nay' },
+    ...(showDone ? [] : [{ key: 'overdue', label: 'Quá hạn', count: cntOverdue, highlight: true, hint: 'Số việc đã quá ngày hẹn mà chưa làm' }]),
+    { key: 'week', label: 'Công việc tuần này', count: cntWeek },
+    { key: 'month', label: 'Công việc tháng này', count: cntMonth }
+  ]
 
-  const reminders = await fastify.mongo.db.collection('reminders')
-    .find(listFilter)
+  const reminders = await remindersCol
+    .find({ ...filter, ...stageFilter, ...periodFilter })
     .sort({ dueDate: 1 })
     .toArray()
 
@@ -1665,7 +1819,7 @@ fastify.get('/reminders', { preHandler: staff }, async (req, reply) => {
     }
   })
 
-  return reply.view('reminders.pug', { reminders: remindersView, user: req.user, showDone, stage, stageTabs })
+  return reply.view('reminders.pug', { reminders: remindersView, user: req.user, showDone, stage, stageTabs, period, periodTabs })
 })
 
 // ----- Hoàn thành lịch nhắc: bắt buộc chọn HÌNH THỨC chăm sóc đã thực hiện -----
@@ -3421,21 +3575,165 @@ fastify.post('/change-password', { preHandler: [auth] }, async (req, reply) => {
 
 
 // ================= BÀN GIAO KHÁCH HÀNG (NHÂN VIÊN CHUYÊN QUẢN -> NHÂN VIÊN CHĂM SÓC PHỤ) =================
-// Mỗi khách hàng có:
-//   - assignedTo     : nhân viên chuyên quản (người chăm sóc chính)
-//   - backupStaffId  : nhân viên chăm sóc phụ (người sẽ đảm nhiệm khi chuyên quản nghỉ phép / nghỉ việc)
+// Nhân viên chăm sóc phụ được đặt ở cấp NHÂN VIÊN:
+//   - users.backupStaffId     : mỗi nhân viên có đúng 1 người phụ, thay thế cho TẤT CẢ khách mình chuyên quản
+//                               (1 người có thể là phụ của nhiều nhân viên; 2 người là phụ của nhau được phép, admin sẽ thấy cảnh báo)
+//   - customers.assignedTo    : nhân viên chuyên quản hiện tại
+//   - customers.returnToStaffId: chủ cũ đang nghỉ phép; khi họ đi làm lại, tạo yêu cầu "Đi làm lại" để trả khách về
 //
 // Quy trình bàn giao (admin xét duyệt, KHÔNG tự bàn giao):
-//   1. Nhân viên chuyên quản gửi yêu cầu bàn giao (chọn khách, lý do Nghỉ phép / Nghỉ việc).
+//   1. Nhân viên (hoặc admin) gửi yêu cầu bàn giao (chọn khách, lý do Nghỉ phép / Nghỉ việc / Đi làm lại).
 //   2. Admin xem và Duyệt hoặc Từ chối.
-//   3. Khi duyệt: nhân viên phụ trở thành chuyên quản; đơn hàng, bảo hành, khiếu nại chưa đóng và lịch nhắc
-//      chưa xong của khách đó đi theo người mới. Mọi lần bàn giao được ghi vào "handover_logs".
-//   - Nghỉ phép: người cũ chuyển thành nhân viên phụ (khi đi làm lại, admin tạo yêu cầu bàn giao ngược lại).
-//   - Nghỉ việc: người cũ rời khỏi hồ sơ khách; vị trí nhân viên phụ để trống, chờ admin chỉ định người mới.
+//   3. Khi duyệt: Nghỉ phép / Nghỉ việc -> khách chuyển cho nhân viên phụ của người bàn giao; đơn hàng, bảo hành,
+//      khiếu nại chưa đóng và lịch nhắc chưa xong đi theo người mới. Mọi lần bàn giao được ghi vào "handover_logs".
+//   - Nghỉ phép: ghi nhớ chủ cũ trong returnToStaffId.
+//   - Đi làm lại: khách trả về đúng chủ cũ (returnToStaffId).
+//   - Nghỉ việc: người cũ rời khỏi hồ sơ khách.
 
 const HANDOVER_STATUS = { PENDING: 'Chờ duyệt', APPROVED: 'Đã duyệt', REJECTED: 'Từ chối', CANCELED: 'Đã hủy' }
 const HANDOVER_STATUS_LIST = Object.values(HANDOVER_STATUS)
-const HANDOVER_REASONS = ['Nghỉ phép', 'Nghỉ việc']
+const HANDOVER_REASONS = ['Nghỉ phép', 'Nghỉ việc', 'Đi làm lại']
+const HANDOVER_RETURN = 'Đi làm lại'
+
+// ---- Trạng thái làm việc của nhân viên (users.availability) ----
+// 'available' = đang làm việc (mặc định khi chưa có trường này), 'on_leave' = tạm vắng.
+// Chỉ nhân viên đang làm việc mới được nhận khách bàn giao; nếu cả chuyên quản và người phụ đều vắng
+// thì khách về "kho chờ admin phân công" (customers.pendingReassign = true, assignedTo = null).
+const STAFF_AVAILABLE = 'available'
+const STAFF_AWAY = 'on_leave'
+const POOL_NAME = 'Chờ admin phân công'
+const POOL_FIELDS_UNSET = { pendingReassign: '', pendingReassignAt: '', pendingReassignReason: '' }
+
+function isStaffAvailable(account) {
+  return !!account && account.availability !== STAFF_AWAY
+}
+
+async function setStaffAvailability(db, staffId, status, extra = {}) {
+  const id = normalizeObjectId(staffId)
+  if (!id) return
+  if (status === STAFF_AWAY) {
+    await db.collection('users').updateOne({ _id: id }, {
+      $set: { availability: STAFF_AWAY, leaveFrom: extra.leaveFrom || '', leaveTo: extra.leaveTo || '', availabilityAt: new Date() }
+    })
+  } else {
+    await db.collection('users').updateOne({ _id: id }, {
+      $set: { availability: STAFF_AVAILABLE, availabilityAt: new Date() },
+      $unset: { leaveFrom: '', leaveTo: '' }
+    })
+  }
+}
+
+async function getMyAvailability(userId) {
+  try {
+    const u = await fastify.mongo.db.collection('users').findOne({ _id: normalizeObjectId(userId) }, { projection: { availability: 1 } })
+    return u && u.availability ? u.availability : STAFF_AVAILABLE
+  } catch (err) {
+    fastify.log.error(err)
+    return STAFF_AVAILABLE
+  }
+}
+
+// ---- Nhắc lịch theo khoảng thời gian: hôm nay / tuần này / tháng này ----
+// dueDate lưu dạng chuỗi "YYYY-MM-DD" nên so sánh chuỗi là đúng thứ tự thời gian.
+//  - Hôm nay: việc có ngày hẹn đúng hôm nay.  - Quá hạn: việc chưa làm có ngày hẹn trước hôm nay (chỉ có ở tab "Chờ thực hiện").
+//  - due: hôm nay + quá hạn, dùng cho huy hiệu trên menu (tổng số việc nhân viên cần làm ngay).
+//  - Tuần này: từ thứ Hai đến Chủ nhật của tuần hiện tại.  - Tháng này: từ ngày 1 đến ngày cuối tháng.
+function reminderPeriodRanges() {
+  const now = new Date()
+  const today = toLocalDateString(now)
+  const mondayOffset = (now.getDay() + 6) % 7
+  const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - mondayOffset)
+  const weekEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - mondayOffset + 6)
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return {
+    today,
+    overdue: { $lt: today },
+    due: { $lte: today },
+    week: { $gte: toLocalDateString(weekStart), $lte: toLocalDateString(weekEnd) },
+    month: { $gte: toLocalDateString(monthStart), $lte: toLocalDateString(monthEnd) }
+  }
+}
+
+// Số việc chăm sóc cần làm ngay (hôm nay + quá hạn) của người đang đăng nhập -> huy hiệu trên menu
+async function countTodayReminders(req) {
+  try {
+    return await fastify.mongo.db.collection('reminders').countDocuments({
+      ...scopeFilter(req, 'assignedTo'),
+      status: 'Chờ thực hiện',
+      dueDate: reminderPeriodRanges().due
+    })
+  } catch (err) {
+    fastify.log.error(err)
+    return 0
+  }
+}
+
+// Nhân viên (role 'user') CHƯA có nhân viên chăm sóc phụ: chưa chỉ định, người phụ đã bị xóa, hoặc tự đặt mình làm phụ.
+// Không lưu riêng: tính trực tiếp từ users.backupStaffId nên luôn đúng ngay khi cấp / sửa / xóa tài khoản.
+async function getStaffWithoutBackup() {
+  try {
+    const staffAll = await fastify.mongo.db.collection('users').find({ role: { $in: STAFF_ROLES } }, { projection: { name: 1, username: 1, role: 1, backupStaffId: 1 } }).toArray()
+    const ids = new Set(staffAll.map(a => String(a._id)))
+    return staffAll
+      .filter(a => a.role === 'user' && (!a.backupStaffId || !ids.has(String(a.backupStaffId)) || String(a.backupStaffId) === String(a._id)))
+      .map(a => ({ _id: String(a._id), name: a.name || a.username }))
+      .sort((x, y) => x.name.localeCompare(y.name, 'vi'))
+  } catch (err) {
+    fastify.log.error(err)
+    return []
+  }
+}
+
+// Số khách hàng CHƯA có nhân viên chuyên quản (assignedTo rỗng) - gồm cả khách đang ở kho chờ phân công
+async function countUnassignedCustomers() {
+  try {
+    return await fastify.mongo.db.collection('customers').countDocuments({ assignedTo: null })
+  } catch (err) {
+    fastify.log.error(err)
+    return 0
+  }
+}
+
+// Số khách đang cần admin xử lý: (1) nằm trong kho chờ phân công, (2) chủ cũ đã đi làm lại nhưng khách chưa được trả
+async function countPendingReassign() {
+  try {
+    const db = fastify.mongo.db
+    const staffAll = await db.collection('users').find({ role: { $in: STAFF_ROLES } }, { projection: { _id: 1, availability: 1, backupStaffId: 1 } }).toArray()
+    const byId = new Map(staffAll.map(a => [String(a._id), a]))
+    const away = staffAll.filter(a => !isStaffAvailable(a))
+    // Chủ gốc đang vắng nhưng người phụ đã đi làm lại: khách chưa nằm ở người phụ cũng cần admin xem
+    const backupReady = away
+      .filter(a => a.backupStaffId && isStaffAvailable(byId.get(String(a.backupStaffId))))
+      .map(a => ({ returnToStaffId: a._id, assignedTo: { $ne: a.backupStaffId } }))
+    return await db.collection('customers').countDocuments({
+      $or: [
+        { pendingReassign: true, assignedTo: null },
+        { returnToStaffId: { $exists: true, $nin: [null, ...away.map(a => a._id)] } },
+        ...backupReady
+      ]
+    })
+  } catch (err) {
+    fastify.log.error(err)
+    return 0
+  }
+}
+
+// Đưa 1 khách về kho chờ admin phân công (chỉ khi khách vẫn đang thuộc fromId). Trả về true nếu chuyển được.
+async function sendCustomerToPool(db, c, { fromId, fromName, reasonType, returnToStaffId, request, approver, source, note }) {
+  const set = { assignedTo: null, pendingReassign: true, pendingReassignAt: new Date(), pendingReassignReason: reasonType, handoverAt: new Date() }
+  const update = { $set: set }
+  if (returnToStaffId) set.returnToStaffId = returnToStaffId
+  else update.$unset = { returnToStaffId: '' }
+  const res = await db.collection('customers').updateOne({ _id: c._id, assignedTo: fromId }, update)
+  if (res.modifiedCount !== 1) return false
+  await moveCustomerRecords(db, [c._id], fromId, null)
+  await recordHandover(db, {
+    request: request || null, customer: c, fromId, fromName, toId: null, toName: POOL_NAME,
+    reasonType, approver, source, note
+  })
+  return true
+}
 
 // Map _id -> tên hiển thị của các tài khoản
 async function getStaffNameMap(db, ids) {
@@ -3451,15 +3749,6 @@ async function getValidStaffMap(db, ids) {
   if (!unique.length) return new Map()
   const list = await db.collection('users').find({ _id: { $in: unique }, role: { $in: STAFF_ROLES } }).toArray()
   return new Map(list.map(u => [u._id.toString(), u]))
-}
-
-// Kiểm tra nhân viên phụ hợp lệ: là tài khoản nội bộ và khác nhân viên chuyên quản. Trả về ObjectId hoặc null.
-async function resolveBackupStaff(db, rawId, primaryId) {
-  const id = normalizeObjectId(rawId)
-  if (!id) return null
-  if (primaryId && String(primaryId) === String(id)) return null
-  const account = await db.collection('users').findOne({ _id: id, role: { $in: STAFF_ROLES } })
-  return account ? account._id : null
 }
 
 async function countPendingHandovers() {
@@ -3514,18 +3803,18 @@ async function recordHandover(db, { request, customer, fromId, fromName, toId, t
   })
 }
 
-// Admin xóa tài khoản nhân viên = nghỉ hẳn: khách do người đó chuyên quản được chuyển cho nhân viên phụ
-// (nếu có), khách nào chưa có nhân viên phụ thì về "chưa phân công". Người bị xóa cũng được gỡ khỏi vị trí phụ.
+// Admin xóa tài khoản nhân viên = nghỉ hẳn: khách do người đó chuyên quản được chuyển cho nhân viên phụ của họ
+// (nếu có), không có thì về "chưa phân công". Người bị xóa cũng được gỡ khỏi vị trí phụ của người khác.
 async function handoverOnAccountRemoval(db, removed, admin) {
   const customersCol = db.collection('customers')
   const owned = await customersCol.find({ assignedTo: removed._id }).toArray()
-  const validBackups = await getValidStaffMap(db, owned.map(c => c.backupStaffId))
+  let backup = removed.backupStaffId ? (await getValidStaffMap(db, [removed.backupStaffId])).get(String(removed.backupStaffId)) : null
+  if (backup && !isStaffAvailable(backup)) backup = null // người phụ đang vắng -> không giao cho họ
   const removedName = removed.name || removed.username || 'Nhân viên đã xóa'
 
   for (const c of owned) {
-    const backup = c.backupStaffId ? validBackups.get(String(c.backupStaffId)) : null
     if (backup && String(backup._id) !== String(removed._id)) {
-      await customersCol.updateOne({ _id: c._id }, { $set: { assignedTo: backup._id, backupStaffId: null } })
+      await customersCol.updateOne({ _id: c._id }, { $set: { assignedTo: backup._id }, $unset: { returnToStaffId: '' } })
       await moveCustomerRecords(db, [c._id], removed._id, backup._id)
       await recordHandover(db, {
         request: null, customer: c, fromId: removed._id, fromName: removedName,
@@ -3533,10 +3822,18 @@ async function handoverOnAccountRemoval(db, removed, admin) {
         approver: admin, source: 'account_removed', note: 'Tài khoản nhân viên bị xóa khỏi hệ thống'
       })
     } else {
-      await customersCol.updateOne({ _id: c._id }, { $set: { assignedTo: null } })
+      // Không có người phụ đang làm việc -> về kho chờ admin phân công (giữ chủ gốc nếu đang giữ hộ người khác)
+      const keep = c.returnToStaffId && String(c.returnToStaffId) !== String(removed._id) ? c.returnToStaffId : null
+      await sendCustomerToPool(db, c, {
+        fromId: removed._id, fromName: removedName, reasonType: 'Nghỉ việc', returnToStaffId: keep,
+        request: null, approver: admin, source: 'account_removed_to_pool',
+        note: 'Tài khoản bị xóa; không có nhân viên chăm sóc phụ đang làm việc'
+      })
     }
   }
-  await customersCol.updateMany({ backupStaffId: removed._id }, { $set: { backupStaffId: null } })
+  // Gỡ người bị xóa khỏi vị trí phụ của nhân viên khác, và khỏi mọi tham chiếu "trả lại"
+  await db.collection('users').updateMany({ backupStaffId: removed._id }, { $set: { backupStaffId: null } })
+  await customersCol.updateMany({ returnToStaffId: removed._id }, { $unset: { returnToStaffId: '' } })
   // Yêu cầu bàn giao đang chờ của người này không còn ý nghĩa
   await db.collection('handover_requests').updateMany(
     { fromStaffId: removed._id, status: HANDOVER_STATUS.PENDING },
@@ -3550,36 +3847,55 @@ function canViewHandover(req, request) {
   return String(request.fromStaffId || '') === me || String(request.createdBy || '') === me
 }
 
-// Danh sách khách mà nhân viên đang chuyên quản; đánh dấu khách đã nằm trong 1 yêu cầu đang chờ duyệt
-async function loadHandoverCandidates(db, fromId) {
+// Nhân viên phụ hợp lệ (còn tồn tại, khác chính mình) của 1 nhân viên; null nếu chưa có
+async function getBackupAccount(db, staffAccountOrId) {
+  const account = staffAccountOrId && staffAccountOrId._id ? staffAccountOrId : await db.collection('users').findOne({ _id: normalizeObjectId(staffAccountOrId) })
+  if (!account || !account.backupStaffId || String(account.backupStaffId) === String(account._id)) return null
+  return (await getValidStaffMap(db, [account.backupStaffId])).get(String(account.backupStaffId)) || null
+}
+
+// Danh sách khách mà nhân viên đang chuyên quản; đánh dấu khách đã nằm trong 1 yêu cầu đang chờ duyệt.
+// returnMode = true: chỉ các khách đang giữ hộ (có returnToStaffId) để trả về chủ cũ.
+async function loadHandoverCandidates(db, fromId, returnMode = false) {
   const pending = await db.collection('handover_requests')
     .find({ status: HANDOVER_STATUS.PENDING, fromStaffId: fromId }, { projection: { customerIds: 1 } }).toArray()
   const locked = new Set(pending.flatMap(r => (r.customerIds || []).map(String)))
-  const customers = await db.collection('customers').find({ assignedTo: fromId }).sort({ name: 1 }).toArray()
-  const names = await getStaffNameMap(db, customers.map(c => c.backupStaffId))
+  const filter = { assignedTo: fromId }
+  if (returnMode) filter.returnToStaffId = { $ne: null, $exists: true }
+  const customers = await db.collection('customers').find(filter).sort({ name: 1 }).toArray()
+  const returnNames = returnMode ? await getStaffNameMap(db, customers.map(c => c.returnToStaffId)) : new Map()
   return customers.map(c => ({
     _id: c._id,
     customerCode: c.customerCode,
     name: c.name,
     phone: c.phone || '',
-    backupStaffName: c.backupStaffId ? (names.get(String(c.backupStaffId)) || '') : '',
+    returnToName: c.returnToStaffId ? (returnNames.get(String(c.returnToStaffId)) || '') : '',
     locked: locked.has(String(c._id))
   }))
 }
 
-async function buildHandoverForm(req, { fromIdRaw, form, error } = {}) {
+async function buildHandoverForm(req, { fromIdRaw, form, error, returnMode } = {}) {
   const db = fastify.mongo.db
   const isAdminUser = req.user.role === 'admin'
   const fromId = isAdminUser ? normalizeObjectId(fromIdRaw) : normalizeObjectId(req.user.id)
   const staffList = isAdminUser
     ? await db.collection('users').find({ role: { $in: STAFF_ROLES } }).sort({ name: 1 }).toArray()
     : []
-  const candidates = fromId ? await loadHandoverCandidates(db, fromId) : []
+  const isReturn = returnMode !== undefined ? !!returnMode : (form && form.reasonType === HANDOVER_RETURN)
+  const candidates = fromId ? await loadHandoverCandidates(db, fromId, false) : []
+  const returnCandidates = fromId ? await loadHandoverCandidates(db, fromId, true) : []
+  const fromAccount = fromId ? await db.collection('users').findOne({ _id: fromId, role: { $in: STAFF_ROLES } }) : null
+  const backup = fromAccount ? await getBackupAccount(db, fromAccount) : null
   return {
     user: req.user,
     staffList,
     fromStaffId: fromId ? String(fromId) : '',
     candidates,
+    returnCandidates,
+    isReturn,
+    backupName: backup ? (backup.name || backup.username) : '',
+    hasBackup: !!backup && isStaffAvailable(backup),
+    backupAway: !!backup && !isStaffAvailable(backup),
     reasons: HANDOVER_REASONS,
     form: form || {},
     error: error || null
@@ -3632,6 +3948,7 @@ fastify.post('/handovers/new', { preHandler: staff }, async (req, reply) => {
 
   const reasonType = String(body.reasonType || '')
   if (!HANDOVER_REASONS.includes(reasonType)) return fail('Vui lòng chọn lý do bàn giao.')
+  const isReturn = reasonType === HANDOVER_RETURN
 
   const leaveFrom = String(body.leaveFrom || '').trim()
   const leaveTo = String(body.leaveTo || '').trim()
@@ -3644,7 +3961,7 @@ fastify.post('/handovers/new', { preHandler: staff }, async (req, reply) => {
   if (!idList.length) return fail('Vui lòng chọn ít nhất 1 khách hàng để bàn giao.')
 
   // Chỉ nhận khách đang do đúng người này chuyên quản và chưa nằm trong yêu cầu nào đang chờ
-  const candidates = await loadHandoverCandidates(db, fromId)
+  const candidates = await loadHandoverCandidates(db, fromId, isReturn)
   const allowed = new Map(candidates.filter(c => !c.locked).map(c => [String(c._id), c]))
   if (idList.some(id => !allowed.has(String(id)))) {
     return fail('Danh sách khách hàng không hợp lệ (có khách không thuộc nhân viên này hoặc đã nằm trong yêu cầu khác đang chờ duyệt).')
@@ -3668,12 +3985,28 @@ fastify.post('/handovers/new', { preHandler: staff }, async (req, reply) => {
 })
 
 // ---------- Chi tiết + duyệt ----------
+// Người nhận của từng khách trong 1 yêu cầu (null nếu không xác định được)
+async function resolveHandoverTargets(db, request, customers) {
+  const isReturn = request.reasonType === HANDOVER_RETURN
+  if (isReturn) {
+    const valid = await getValidStaffMap(db, customers.map(c => c.returnToStaffId))
+    return c => {
+      const t = c.returnToStaffId ? valid.get(String(c.returnToStaffId)) : null
+      return t && String(t._id) !== String(request.fromStaffId) ? t : null
+    }
+  }
+  // Người phụ phải đang làm việc; nếu vắng / chưa chỉ định thì trả null -> khách về kho chờ admin phân công
+  const backup = await getBackupAccount(db, request.fromStaffId)
+  const usable = isStaffAvailable(backup) ? backup : null
+  return () => usable
+}
+
 async function buildHandoverDetail(req, request, extra = {}) {
   const db = fastify.mongo.db
   const ids = request.customerIds || []
   const customers = await db.collection('customers').find({ _id: { $in: ids } }).toArray()
   const customerById = new Map(customers.map(c => [String(c._id), c]))
-  const validBackups = await getValidStaffMap(db, customers.map(c => c.backupStaffId))
+  const targetFor = await resolveHandoverTargets(db, request, customers)
   const names = await getStaffNameMap(db, [request.fromStaffId, request.createdBy, request.reviewedBy, ...customers.map(c => c.assignedTo)])
   const isPending = request.status === HANDOVER_STATUS.PENDING
 
@@ -3681,23 +4014,20 @@ async function buildHandoverDetail(req, request, extra = {}) {
     const c = customerById.get(String(id))
     if (!c) return { id, missing: true }
     const stale = String(c.assignedTo || '') !== String(request.fromStaffId)
-    const backup = c.backupStaffId ? validBackups.get(String(c.backupStaffId)) : null
-    const hasTarget = !!backup && String(backup._id) !== String(request.fromStaffId)
+    const target = targetFor(c)
     return {
       id, _id: c._id, customerCode: c.customerCode, name: c.name,
       stale,
       currentOwnerName: c.assignedTo ? (names.get(String(c.assignedTo)) || 'Chưa rõ') : 'Chưa phân công',
-      targetName: hasTarget ? (backup.name || backup.username) : '',
-      hasTarget
+      targetName: target ? (target.name || target.username) : (request.reasonType === HANDOVER_RETURN ? '' : POOL_NAME),
+      hasTarget: !!target || request.reasonType !== HANDOVER_RETURN,
+      toPool: !target && request.reasonType !== HANDOVER_RETURN
     }
   })
-  const needsFallback = isPending && rows.some(r => !r.missing && !r.stale && !r.hasTarget)
+  const missingTarget = isPending && rows.some(r => !r.missing && !r.stale && !r.hasTarget)
 
   const logs = request.status === HANDOVER_STATUS.APPROVED
     ? await db.collection('handover_logs').find({ requestId: request._id }).sort({ createdAt: 1 }).toArray()
-    : []
-  const fallbackList = needsFallback && req.user.role === 'admin'
-    ? (await db.collection('users').find({ role: { $in: STAFF_ROLES }, _id: { $ne: request.fromStaffId } }).sort({ name: 1 }).toArray())
     : []
 
   return {
@@ -3713,7 +4043,9 @@ async function buildHandoverDetail(req, request, extra = {}) {
       leaveToText: request.leaveTo ? formatDate(request.leaveTo) : ''
     },
     rows, logs: logs.map(l => ({ ...l, createdAtText: formatDateTime(l.createdAt) })),
-    isPending, needsFallback, fallbackList,
+    isPending, missingTarget,
+    poolCount: rows.filter(r => r.toPool && !r.stale).length,
+    isReturn: request.reasonType === HANDOVER_RETURN,
     canReview: req.user.role === 'admin' && isPending,
     canCancel: isPending && canViewHandover(req, request),
     error: null, success: null,
@@ -3750,22 +4082,14 @@ fastify.post('/handovers/:id/approve', { preHandler: [auth, isAdmin] }, async (r
   const fromName = fromAccount ? (fromAccount.name || fromAccount.username) : (request.fromStaffName || 'Nhân viên')
 
   const customers = await db.collection('customers').find({ _id: { $in: request.customerIds || [] } }).toArray()
-  const validBackups = await getValidStaffMap(db, customers.map(c => c.backupStaffId))
+  const targetFor = await resolveHandoverTargets(db, request, customers)
+  const isReturn = request.reasonType === HANDOVER_RETURN
 
-  // Người nhận thay thế cho khách chưa có nhân viên phụ hợp lệ
-  const fallbackId = normalizeObjectId(body.fallbackStaffId)
-  const fallbackAccount = fallbackId && String(fallbackId) !== String(fromId)
-    ? (await getValidStaffMap(db, [fallbackId])).get(String(fallbackId))
-    : null
-
-  const targetFor = c => {
-    const backup = c.backupStaffId ? validBackups.get(String(c.backupStaffId)) : null
-    if (backup && String(backup._id) !== String(fromId)) return backup
-    return fallbackAccount || null
-  }
   const actionable = customers.filter(c => String(c.assignedTo || '') === String(fromId))
-  if (actionable.some(c => !targetFor(c))) {
-    return showError('Có khách hàng chưa có nhân viên chăm sóc phụ. Hãy chọn "Người nhận thay thế" rồi duyệt lại.')
+  // Trả khách về chủ cũ thì bắt buộc phải còn chủ cũ. Nghỉ phép / nghỉ việc mà không có người phụ đang làm việc
+  // thì KHÔNG báo lỗi nữa: khách về kho chờ admin phân công.
+  if (isReturn && actionable.some(c => !targetFor(c))) {
+    return showError('Có khách hàng không còn chủ cũ hợp lệ để trả về. Hãy từ chối yêu cầu này.')
   }
 
   // Nhận yêu cầu một cách nguyên tử: 2 admin cùng bấm duyệt thì chỉ 1 người thực hiện được
@@ -3776,12 +4100,29 @@ fastify.post('/handovers/:id/approve', { preHandler: [auth, isAdmin] }, async (r
   if (claim.modifiedCount !== 1) return showError('Yêu cầu này vừa được xử lý bởi người khác.')
 
   let applied = 0
+  let pooled = 0
   try {
+    const returnedOwners = new Set()
     for (const c of actionable) {
       const target = targetFor(c)
+      // Nghỉ phép: nhớ chủ gốc để trả lại (giữ chủ gốc nếu khách đã được chuyển tiếp trước đó)
+      const keepReturn = request.reasonType === 'Nghỉ phép' ? (c.returnToStaffId || fromId) : null
+
+      if (!target) {
+        const ok = await sendCustomerToPool(db, c, {
+          fromId, fromName, reasonType: request.reasonType, returnToStaffId: keepReturn,
+          request, approver: req.user, source: 'request_to_pool', note: reviewNote || request.note
+        })
+        if (ok) { applied++; pooled++ }
+        continue
+      }
+
+      const update = { $set: { assignedTo: target._id, handoverAt: new Date() }, $unset: { ...POOL_FIELDS_UNSET } }
+      if (keepReturn && String(keepReturn) !== String(target._id)) update.$set.returnToStaffId = keepReturn
+      else update.$unset.returnToStaffId = ''
       const res = await db.collection('customers').updateOne(
         { _id: c._id, assignedTo: fromId }, // chỉ chuyển nếu khách vẫn thuộc người bàn giao
-        { $set: { assignedTo: target._id, backupStaffId: request.reasonType === 'Nghỉ phép' ? fromId : null, handoverAt: new Date() } }
+        update
       )
       if (res.modifiedCount !== 1) continue
       await moveCustomerRecords(db, [c._id], fromId, target._id)
@@ -3789,8 +4130,15 @@ fastify.post('/handovers/:id/approve', { preHandler: [auth, isAdmin] }, async (r
         request, customer: c, fromId, fromName, toId: target._id, toName: target.name || target.username,
         reasonType: request.reasonType, approver: req.user, source: 'request', note: reviewNote || request.note
       })
+      if (isReturn) returnedOwners.add(String(target._id))
       applied++
     }
+
+    // Cập nhật trạng thái làm việc: nghỉ phép / nghỉ việc -> tạm vắng; được trả khách về = đã đi làm lại
+    if (request.reasonType === 'Nghỉ phép' || request.reasonType === 'Nghỉ việc') {
+      await setStaffAvailability(db, fromId, STAFF_AWAY, { leaveFrom: request.leaveFrom, leaveTo: request.leaveTo })
+    }
+    for (const ownerId of returnedOwners) await setStaffAvailability(db, ownerId, STAFF_AVAILABLE)
     await db.collection('handover_requests').updateOne(
       { _id: request._id },
       { $set: { appliedCount: applied, skippedCount: (request.customerIds || []).length - applied, appliedAt: new Date() } }
@@ -3807,7 +4155,7 @@ fastify.post('/handovers/:id/approve', { preHandler: [auth, isAdmin] }, async (r
   }
 
   const skipped = (request.customerIds || []).length - applied
-  const msg = `Đã bàn giao ${applied} khách hàng${skipped ? `, bỏ qua ${skipped} khách (đã đổi người phụ trách hoặc không còn tồn tại)` : ''}.`
+  const msg = `Đã bàn giao ${applied} khách hàng${pooled ? ` (trong đó ${pooled} khách chuyển về kho chờ admin phân công vì người chăm sóc phụ đang vắng hoặc chưa được chỉ định)` : ''}${skipped ? `, bỏ qua ${skipped} khách (đã đổi người phụ trách hoặc không còn tồn tại)` : ''}.`
   return reply.redirect(`/handovers/detail/${request._id}?done=${encodeURIComponent(msg)}`)
 })
 
@@ -3853,6 +4201,261 @@ fastify.get('/handovers/history', { preHandler: staff }, async (req, reply) => {
   })
 })
 
+// ================= KHÁCH CHỜ ADMIN PHÂN CÔNG =================
+// Gom các khách cần admin xử lý thành 3 nhóm:
+//  1. returnGroups: chủ cũ (chuyên quản) ĐÃ ĐI LÀM LẠI (nhân viên tự bấm hoặc admin đổi trạng thái) nhưng khách chưa được trả -> admin xác nhận trả về chủ cũ
+//  2. backupGroups: chủ cũ vẫn vắng nhưng NGƯỜI PHỤ đã đi làm lại -> khách (trong kho hoặc đang ở người giữ hộ khác) được gợi ý giao người phụ giữ hộ
+//  3. poolList: khách trong kho mà cả chuyên quản lẫn người phụ đều vắng / không có -> admin tự chọn người nhận
+async function buildPoolOverview(db) {
+  const staffAll = await db.collection('users').find({ role: { $in: STAFF_ROLES } }).toArray()
+  const staffById = new Map(staffAll.map(s => [String(s._id), s]))
+  const awayIds = staffAll.filter(s => !isStaffAvailable(s)).map(s => s._id)
+  const nameOf = s => (s ? (s.name || s.username) : '')
+
+  // Chủ gốc đang vắng nhưng người phụ đã đi làm lại: khách đang ở người giữ hộ khác (hoặc trong kho) cũng được gợi ý giao người phụ
+  const backupReady = staffAll
+    .filter(a => !isStaffAvailable(a) && a.backupStaffId && isStaffAvailable(staffById.get(String(a.backupStaffId))))
+    .map(a => ({ returnToStaffId: a._id, assignedTo: { $ne: a.backupStaffId } }))
+
+  const customers = await db.collection('customers').find({
+    $or: [
+      { pendingReassign: true, assignedTo: null },
+      { returnToStaffId: { $exists: true, $nin: [null, ...awayIds] } },
+      ...backupReady
+    ]
+  }).sort({ name: 1 }).toArray()
+
+  const returnGroups = new Map()
+  const backupGroups = new Map()
+  const poolList = []
+  const backupCache = new Map()
+  const backupOf = async owner => {
+    const key = String(owner._id)
+    if (!backupCache.has(key)) backupCache.set(key, await getBackupAccount(db, owner))
+    return backupCache.get(key)
+  }
+  const addTo = (map, owner, extra, row) => {
+    const key = String(owner._id)
+    if (!map.has(key)) map.set(key, { ownerId: key, ownerName: nameOf(owner), ...extra, customers: [] })
+    map.get(key).customers.push(row)
+  }
+
+  for (const c of customers) {
+    const owner = c.returnToStaffId ? staffById.get(String(c.returnToStaffId)) : null
+    const inPool = c.pendingReassign === true && !c.assignedTo
+    const holder = c.assignedTo ? staffById.get(String(c.assignedTo)) : null
+    const row = {
+      _id: c._id, customerCode: c.customerCode, name: c.name, phone: c.phone || '',
+      holderName: c.assignedTo ? (nameOf(holder) || 'Chưa rõ') : POOL_NAME,
+      ownerName: nameOf(owner),
+      reason: c.pendingReassignReason || '',
+      sinceText: c.pendingReassignAt ? formatDateTime(c.pendingReassignAt) : ''
+    }
+    if (owner && isStaffAvailable(owner)) {
+      addTo(returnGroups, owner, {}, row)
+    } else {
+      const backup = owner ? await backupOf(owner) : null
+      if (backup && isStaffAvailable(backup) && String(c.assignedTo || '') !== String(backup._id)) {
+        addTo(backupGroups, owner, { backupName: nameOf(backup) }, row)
+      } else if (inPool) {
+        poolList.push(row)
+      }
+    }
+  }
+
+  return {
+    returnGroups: [...returnGroups.values()],
+    backupGroups: [...backupGroups.values()],
+    poolList,
+    availableStaff: staffAll.filter(isStaffAvailable).sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'vi'))
+      .map(s => ({ _id: s._id, name: nameOf(s), role: s.role })),
+    total: customers.length
+  }
+}
+
+fastify.get('/handovers/pool', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const overview = await buildPoolOverview(fastify.mongo.db)
+  return reply.view('handover_pool.pug', {
+    user: req.user, ...overview,
+    success: req.query.done ? String(req.query.done).slice(0, 300) : null,
+    error: req.query.error ? String(req.query.error).slice(0, 300) : null
+  })
+})
+
+const poolRedirect = (reply, kind, msg) => reply.redirect(`/handovers/pool?${kind}=${encodeURIComponent(msg)}`)
+const poolUpdateUnset = extra => ({ ...POOL_FIELDS_UNSET, ...extra })
+
+// Admin chọn nhân viên nhận các khách trong kho (tạm thời: vẫn nhớ chủ gốc để trả lại; vĩnh viễn: bỏ liên kết chủ gốc)
+fastify.post('/handovers/pool/assign', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const body = req.body || {}
+  const toId = normalizeObjectId(body.toStaffId)
+  const target = toId ? await db.collection('users').findOne({ _id: toId, role: { $in: STAFF_ROLES } }) : null
+  if (!target) return poolRedirect(reply, 'error', 'Vui lòng chọn nhân viên nhận khách.')
+  if (!isStaffAvailable(target)) return poolRedirect(reply, 'error', 'Nhân viên được chọn đang tạm vắng, hãy chọn người khác.')
+
+  const idList = [...new Set(toArrayField(body.customerIds).map(normalizeObjectId).filter(Boolean).map(String))].map(id => new ObjectId(id))
+  if (!idList.length) return poolRedirect(reply, 'error', 'Vui lòng chọn ít nhất 1 khách hàng.')
+
+  const permanent = body.mode === 'permanent'
+  const customers = await db.collection('customers').find({ _id: { $in: idList }, pendingReassign: true, assignedTo: null }).toArray()
+  const targetName = target.name || target.username
+  let applied = 0
+  for (const c of customers) {
+    const update = { $set: { assignedTo: target._id, handoverAt: new Date() }, $unset: poolUpdateUnset() }
+    if (permanent || (c.returnToStaffId && String(c.returnToStaffId) === String(target._id))) update.$unset.returnToStaffId = ''
+    const res = await db.collection('customers').updateOne({ _id: c._id, pendingReassign: true, assignedTo: null }, update)
+    if (res.modifiedCount !== 1) continue
+    await moveCustomerRecords(db, [c._id], null, target._id)
+    await recordHandover(db, {
+      request: null, customer: c, fromId: null, fromName: POOL_NAME, toId: target._id, toName: targetName,
+      reasonType: 'Admin phân công lại', approver: req.user, source: 'pool_assign',
+      note: permanent ? 'Phân công vĩnh viễn' : 'Phân công tạm thời (sẽ trả về chủ cũ khi họ đi làm lại)'
+    })
+    applied++
+  }
+  return poolRedirect(reply, 'done', `Đã giao ${applied} khách cho ${targetName}${permanent ? ' (vĩnh viễn)' : ' (tạm thời)'}.`)
+})
+
+// Chủ cũ đã đi làm lại -> admin xác nhận trả toàn bộ khách (đang ở người giữ hộ hoặc trong kho) về chủ cũ
+fastify.post('/handovers/pool/return/:ownerId', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const ownerId = normalizeObjectId(req.params.ownerId)
+  const owner = ownerId ? await db.collection('users').findOne({ _id: ownerId, role: { $in: STAFF_ROLES } }) : null
+  if (!owner) return poolRedirect(reply, 'error', 'Không tìm thấy nhân viên.')
+  if (!isStaffAvailable(owner)) return poolRedirect(reply, 'error', 'Nhân viên này vẫn đang tạm vắng, chưa thể trả khách.')
+
+  const ownerName = owner.name || owner.username
+  const customers = await db.collection('customers').find({ returnToStaffId: owner._id }).toArray()
+  const names = await getStaffNameMap(db, customers.map(c => c.assignedTo))
+  let applied = 0
+  for (const c of customers) {
+    const from = c.assignedTo || null
+    if (from && String(from) === String(owner._id)) { // đã ở đúng chủ cũ, chỉ dọn dấu vết
+      await db.collection('customers').updateOne({ _id: c._id }, { $unset: poolUpdateUnset({ returnToStaffId: '' }) })
+      continue
+    }
+    const res = await db.collection('customers').updateOne(
+      { _id: c._id, assignedTo: from },
+      { $set: { assignedTo: owner._id, handoverAt: new Date() }, $unset: poolUpdateUnset({ returnToStaffId: '' }) }
+    )
+    if (res.modifiedCount !== 1) continue
+    await moveCustomerRecords(db, [c._id], from, owner._id)
+    await recordHandover(db, {
+      request: null, customer: c, fromId: from, fromName: from ? (names.get(String(from)) || 'Nhân viên giữ hộ') : POOL_NAME,
+      toId: owner._id, toName: ownerName, reasonType: HANDOVER_RETURN, approver: req.user, source: 'pool_return',
+      note: 'Admin xác nhận trả khách khi chuyên quản đi làm lại'
+    })
+    applied++
+  }
+  return poolRedirect(reply, 'done', `Đã trả ${applied} khách về ${ownerName}.`)
+})
+
+// Chuyên quản còn vắng nhưng người phụ đã đi làm lại -> admin xác nhận giao khách trong kho cho người phụ giữ hộ
+fastify.post('/handovers/pool/backup/:ownerId', { preHandler: [auth, isAdmin] }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const ownerId = normalizeObjectId(req.params.ownerId)
+  const owner = ownerId ? await db.collection('users').findOne({ _id: ownerId, role: { $in: STAFF_ROLES } }) : null
+  if (!owner) return poolRedirect(reply, 'error', 'Không tìm thấy nhân viên.')
+  if (isStaffAvailable(owner)) return poolRedirect(reply, 'error', 'Chuyên quản đã đi làm lại, hãy dùng nút "Trả khách về chủ cũ".')
+  const backup = await getBackupAccount(db, owner)
+  if (!backup || !isStaffAvailable(backup)) return poolRedirect(reply, 'error', 'Nhân viên chăm sóc phụ chưa sẵn sàng (đang vắng hoặc chưa được chỉ định).')
+
+  const backupName = backup.name || backup.username
+  // Mọi khách còn mang dấu "chủ gốc = chuyên quản đang vắng" mà chưa ở người phụ (đang trong kho hoặc ở người giữ hộ khác)
+  const customers = await db.collection('customers').find({ returnToStaffId: owner._id, assignedTo: { $ne: backup._id } }).toArray()
+  const names = await getStaffNameMap(db, customers.map(c => c.assignedTo))
+  let applied = 0
+  for (const c of customers) {
+    const from = c.assignedTo || null
+    const res = await db.collection('customers').updateOne(
+      { _id: c._id, assignedTo: from },
+      { $set: { assignedTo: backup._id, handoverAt: new Date() }, $unset: poolUpdateUnset() } // vẫn giữ returnToStaffId = chuyên quản
+    )
+    if (res.modifiedCount !== 1) continue
+    await moveCustomerRecords(db, [c._id], from, backup._id)
+    await recordHandover(db, {
+      request: null, customer: c, fromId: from, fromName: from ? (names.get(String(from)) || 'Nhân viên giữ hộ') : POOL_NAME,
+      toId: backup._id, toName: backupName, reasonType: 'Nghỉ phép', approver: req.user, source: 'pool_backup',
+      note: 'Nhân viên chăm sóc phụ đã đi làm lại, giữ hộ khách của chuyên quản đang vắng'
+    })
+    applied++
+  }
+  return poolRedirect(reply, 'done', `Đã giao ${applied} khách cho ${backupName} giữ hộ ${owner.name || owner.username}.`)
+})
+
+// Đổi trạng thái làm việc. Admin: đổi cho bất kỳ ai. Nhân viên: chỉ tự báo "đã đi làm lại" cho chính mình.
+// Đặt "tạm vắng" bằng tay KHÔNG tự chuyển khách - muốn chuyển khách hãy tạo yêu cầu bàn giao.
+fastify.post('/staff/availability/:id', { preHandler: staff }, async (req, reply) => {
+  const db = fastify.mongo.db
+  const body = req.body || {}
+  const id = normalizeObjectId(req.params.id)
+  const status = body.status === STAFF_AWAY ? STAFF_AWAY : STAFF_AVAILABLE
+  const isSelf = !!id && String(id) === String(req.user.id)
+  if (req.user.role !== 'admin' && !(isSelf && status === STAFF_AVAILABLE)) {
+    return reply.status(403).send('❌ Bạn không có quyền thực hiện hành động này')
+  }
+  const account = id ? await db.collection('users').findOne({ _id: id, role: { $in: STAFF_ROLES } }) : null
+  if (!account) return reply.status(404).send('❌ Không tìm thấy tài khoản nhân viên')
+
+  if (status === STAFF_AWAY) await setStaffAvailability(db, id, STAFF_AWAY, { leaveFrom: toLocalDateString(new Date()), leaveTo: '' })
+  else await setStaffAvailability(db, id, STAFF_AVAILABLE)
+
+  const back = typeof body.back === 'string' && /^\/[^/\\]/.test(body.back) ? body.back : '/dashboard'
+  return reply.redirect(back)
+})
+
+// Dữ liệu cũ: nhân viên đang có khách bị giữ hộ (returnToStaffId) chắc chắn đang nghỉ phép -> đánh dấu tạm vắng một lần.
+async function migrateAvailability() {
+  try {
+    const db = fastify.mongo.db
+    const ownerIds = await db.collection('customers').distinct('returnToStaffId', { returnToStaffId: { $exists: true, $ne: null } })
+    for (const id of ownerIds) {
+      const account = await db.collection('users').findOne({ _id: id, role: { $in: STAFF_ROLES } })
+      if (!account || account.availability) continue
+      const last = await db.collection('handover_requests')
+        .find({ fromStaffId: id, reasonType: 'Nghỉ phép', status: HANDOVER_STATUS.APPROVED }).sort({ reviewedAt: -1 }).limit(1).toArray()
+      await setStaffAvailability(db, id, STAFF_AWAY, { leaveFrom: last[0] ? last[0].leaveFrom : '', leaveTo: last[0] ? last[0].leaveTo : '' })
+    }
+  } catch (err) {
+    fastify.log.error(err)
+  }
+}
+
+// Chuyển dữ liệu cũ (nhân viên phụ theo từng khách) lên cấp nhân viên. Chạy lại nhiều lần vẫn an toàn:
+// nhân viên nào đã có backupStaffId thì bỏ qua; mỗi nhân viên lấy người phụ xuất hiện nhiều nhất trong các khách của họ.
+async function migrateBackupToStaffLevel() {
+  try {
+    const db = fastify.mongo.db
+    const customersCol = db.collection('customers')
+    const old = await customersCol.find({ backupStaffId: { $exists: true } }, { projection: { assignedTo: 1, backupStaffId: 1 } }).toArray()
+    if (!old.length) return
+    const counts = new Map() // owner -> Map(backup -> n)
+    for (const c of old) {
+      if (!c.assignedTo || !c.backupStaffId) continue
+      const o = String(c.assignedTo)
+      if (!counts.has(o)) counts.set(o, new Map())
+      const m = counts.get(o)
+      m.set(String(c.backupStaffId), (m.get(String(c.backupStaffId)) || 0) + 1)
+    }
+    for (const [owner, m] of counts) {
+      const user = await db.collection('users').findOne({ _id: new ObjectId(owner) })
+      if (!user || user.backupStaffId || !STAFF_ROLES.includes(user.role)) continue
+      const sorted = [...m.entries()].sort((a, b) => b[1] - a[1])
+      const valid = (await getValidStaffMap(db, [sorted[0][0]])).get(sorted[0][0])
+      if (!valid || String(valid._id) === owner) continue
+      await db.collection('users').updateOne({ _id: user._id }, { $set: { backupStaffId: valid._id } })
+      if (sorted.length > 1) fastify.log.warn(`Migration backup: ${user.username} có ${sorted.length} người phụ khác nhau, chọn người xuất hiện nhiều nhất`)
+    }
+    // Khách đang được giữ hộ (cũ: backupStaffId = chủ cũ khi nghỉ phép) -> returnToStaffId
+    await customersCol.updateMany({ backupStaffId: { $ne: null, $exists: true }, returnToStaffId: { $exists: false }, handoverAt: { $exists: true } },
+      [{ $set: { returnToStaffId: '$backupStaffId' } }])
+    await customersCol.updateMany({ backupStaffId: { $exists: true } }, { $unset: { backupStaffId: '' } })
+  } catch (err) {
+    fastify.log.error(err)
+  }
+}
+
 async function ensureHandoverIndexes() {
   try {
     await fastify.mongo.db.collection('handover_logs').createIndex({ customerId: 1, createdAt: -1 })
@@ -3868,8 +4471,12 @@ fastify.listen({ port: 3000, host: '0.0.0.0' }, err => {
   if (err) throw err
   console.log('CRM Cửa Hàng Điện Thoại đang chạy tại http://localhost:3000')
   migrateEmployeePositions()
+  migrateBackupToStaffLevel()
   ensureAnnouncementIndexes()
   ensureHandoverIndexes()
+
+  // Trạng thái làm việc: đồng bộ dữ liệu cũ (nhân viên đang có khách bị giữ hộ -> tạm vắng)
+  migrateAvailability()
 
   // Quét bảo hành sắp hết hạn -> tự tạo lịch nhắc (chạy ngay khi khởi động rồi lặp lại định kỳ)
   generateWarrantyExpiryReminders()
